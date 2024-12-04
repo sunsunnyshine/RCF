@@ -3,7 +3,7 @@ import torch.utils.data
 import numpy as np
 import os
 from PIL import Image
-
+from utils.frame_utils import readFlow
 
 class VideoDataset(torch.utils.data.Dataset):
     def __init__(self, root, split, training, frame_num=2, load_flow=False, load_pl=False, transform=None, subsample_frame_interval=None, flow_suffix="", zero_ann=False, pl_root=None):
@@ -102,7 +102,7 @@ class VideoDataset(torch.utils.data.Dataset):
             assert i == 0, "In eval, we should have one frame only."
             if not self.zero_ann:
                 path = current_seq[frame_ind].replace(
-                    "JPEGImages", "Annotations").replace(".jpg", ".png")
+                    "JPEGImages", "Annotations")
                 ann = self.load_image(path)
             else:
                 # Set ann to 1x1 zeros
@@ -116,14 +116,14 @@ class VideoDataset(torch.utils.data.Dataset):
             gt_bw_flows = []
             for i in range(1, self.frame_num): # 00001.jpg in Flow is the flow from 0 to 1
                 fw_flow_path = current_seq[frame_ind + i].replace(
-                    "JPEGImages", "Flows" + self.flow_suffix)[:-4] + ".npy"
+                    "JPEGImages", "Flows" + self.flow_suffix)[:-4] + ".flo"
                 bw_flow_path = current_seq[frame_ind + i].replace(
-                    "JPEGImages", "BackwardFlows" + self.flow_suffix)[:-4] + ".npy"
+                    "JPEGImages", "BackwardFlows" + self.flow_suffix)[:-4] + ".flo"
                 if False: # debug
                     fw_flow_path = "/home/l/lo/longlian/00001.npy"
                     bw_flow_path = "/home/l/lo/longlian/00001.npy"
-                gt_fw_flow = np.load(fw_flow_path)
-                gt_bw_flow = np.load(bw_flow_path)
+                gt_fw_flow = readFlow(fw_flow_path)
+                gt_bw_flow = readFlow(bw_flow_path)
 
                 gt_fw_flows.append(gt_fw_flow)
                 gt_bw_flows.append(gt_bw_flow)

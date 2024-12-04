@@ -299,6 +299,10 @@ class RandomFlip(object):
                 for i in range(len(results[key])):
                     results[key][i] = mmcv.imflip(
                         results[key][i], direction=results['flip_direction']).copy()
+                    # TODO
+                    # If the key represents optical flow, flip the u values
+                    if 'flow' in key:
+                        results[key][i][..., 0] = -results[key][i][..., 0]
         return results
 
     def __repr__(self):
@@ -886,7 +890,7 @@ class Transform(object):
     This is the transform used by v1 and v2 (v2.1).
     Training and evaluation have different shape (training is rectangular).
     """
-    def __init__(self, training, strong_aug=False, has_flow=True, has_attn=False, has_pl=False, scale_flow=False):
+    def __init__(self, training, strong_aug=False, has_flow=True, has_attn=False, has_pl=False, scale_flow=True):
         # v1 by default uses weak_aug
         self.training = training
         self.has_pl = has_pl
@@ -894,8 +898,8 @@ class Transform(object):
         if self.training:
             self.group_transform = transforms.Compose([
                 *([AttnTransform()] if has_attn else []),
-                Resize(img_scale=(9999, 400), ratio_range=(0.96, 1.0)),
-                RandomCrop(crop_size=(384, 384), cat_max_ratio=1.0),
+                Resize(img_scale=(9999, 675), ratio_range=(0.80, 1.0)),
+                RandomCrop(crop_size=(540, 960), cat_max_ratio=1.0),
                 *([
                     RandomFlip(flip_ratio=0.5, direction='horizontal'),
                     PhotoMetricDistortion()
@@ -907,7 +911,8 @@ class Transform(object):
             ])
         else:
             self.group_transform = transforms.Compose([
-                Resize(img_scale=(9999, 400), ratio_range=(0.98, 0.98)),
+                # TODO:since we have resize 0.5 and change the flow , we should *2 when save the inner flow
+                Resize(img_scale=(9999, 675), ratio_range=(0.80, 0.80)),
                 AnnotationTransform(),
                 NumpyToTensor(['img']),
                 TorchNormalize(**normalize_kwargs)
