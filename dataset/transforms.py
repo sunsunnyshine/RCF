@@ -299,9 +299,7 @@ class RandomFlip(object):
                 for i in range(len(results[key])):
                     results[key][i] = mmcv.imflip(
                         results[key][i], direction=results['flip_direction']).copy()
-                    # TODO
-                    # If the key represents optical flow, flip the u values
-                    if 'flow' in key:
+                    if results['flip'] and (key is 'gt_fw_flows' or key is 'gt_bw_flows'):
                         results[key][i][..., 0] = -results[key][i][..., 0]
         return results
 

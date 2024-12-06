@@ -69,7 +69,7 @@ model_kwargs:
   separate_residual: true
   mask_layer: 4
   align_corners: false
-  mask_size: [240, 135]
+  mask_size: [135, 240]
   # Enable residual and clamp
   backbone2:
     # Changed to v2.1
@@ -95,7 +95,7 @@ model_kwargs:
     type: FlowAggregationHeadWithResidual
     flow_feat_before_agg_kernel_size: 3
     num_flow_feat_channels: 64
-    mask_size: [240, 135]
+    mask_size: [135, 240]
     norm_flow: false
     clamp_flow_t: 20.
     free_residual: true
@@ -131,12 +131,12 @@ model_kwargs:
     dilation: 6
     channels: 256
     type: FCNHead
-    in_channels: 40240
+    in_channels: 4096
     # Only use the last map
     in_index: -1
     num_convs: 2
     dropout_ratio: 0.1
-    # in_channel is 40240 (2048 * 2 as we have two frames) as in the original one
+    # in_channel is 4096 (2048 * 2 as we have two frames) as in the original one
     # Predicted residual is 48x48, resize in `decode_head` with `allow_residual_resize`
     # Output dimension is 16 because we need to split to fw and bw
     num_classes: 16
