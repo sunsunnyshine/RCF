@@ -1,7 +1,7 @@
 # Note: By default, this config uses trainval as training
 
 # Uses pre-extracted flows.
-batch_size: 1
+batch_size: 2
 epochs: 200
 learning_rate: 1.e-4
 optimizer: Adam
@@ -9,7 +9,7 @@ weight_decay: 1.e-4
 
 workers: 16
 
-checkpoints_dir: saved/saved_rcf_stage1
+checkpoints_dir: saved/saved_rcf_vdv_stage1
 pretrained_model: data/pretrained/densecl_r50_imagenet_200ep.pth
 model_cls: RCFModel
 
