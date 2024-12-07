@@ -909,7 +909,6 @@ class Transform(object):
             ])
         else:
             self.group_transform = transforms.Compose([
-                # TODO:since we have resize 0.5 and change the flow , we should *2 when save the inner flow
                 Resize(img_scale=(9999, 675), ratio_range=(0.80, 0.80)),
                 AnnotationTransform(),
                 NumpyToTensor(['img']),

@@ -22,11 +22,11 @@ def get_norm_flow(lis1, lis2):
     flow = lis1
     _, _, _h, _w = flow.shape
     flow = torch.cat(
-        [flow[:, 0:1] / (_h/2.0), flow[:, 1:2] / (_w/2.0)], 1)
+        [flow[:, 0:1] / (_h / 2.0), flow[:, 1:2] / (_w / 2.0)], 1)
     flow2 = lis2
     _, _, _h, _w = flow2.shape
     flow2 = torch.cat(
-        [flow2[:, 0:1] / (_h/2.0), flow2[:, 1:2] / (_w/2.0)], 1)
+        [flow2[:, 0:1] / (_h / 2.0), flow2[:, 1:2] / (_w / 2.0)], 1)
     return _h, _w, flow, flow2
 
 
@@ -86,7 +86,8 @@ class FlowAggregationHeadWithResidual(nn.Module):
                       dilation=1,
                       padding=(flow_feat_before_agg_kernel_size - 1) // 2, bias=True),
             nn.LeakyReLU(0.1, inplace=True),
-            nn.Conv2d(num_flow_feat_channels, num_flow_feat_channels, kernel_size=flow_feat_before_agg_kernel_size, stride=1,
+            nn.Conv2d(num_flow_feat_channels, num_flow_feat_channels, kernel_size=flow_feat_before_agg_kernel_size,
+                      stride=1,
                       dilation=1,
                       padding=(flow_feat_before_agg_kernel_size - 1) // 2, bias=True),
             nn.LeakyReLU(0.1, inplace=True)
@@ -128,7 +129,8 @@ class FlowAggregationHeadWithResidual(nn.Module):
         self.object_free_residual = object_free_residual
         self.free_scale = free_scale
         self.affine_residual = affine_residual
-        assert (int(self.free_residual) + int(self.free_residual_with_affine) + int(self.object_free_residual) + int(self.free_scale) + int(self.affine_residual)
+        assert (int(self.free_residual) + int(self.free_residual_with_affine) + int(self.object_free_residual) + int(
+            self.free_scale) + int(self.affine_residual)
                 ) <= 1, f"Only one of {self.free_residual}, {self.free_residual_with_affine}, {self.object_free_residual}, {self.free_scale}, {self.affine_residual}"
         self.allow_residual_resize = allow_residual_resize
 
@@ -140,7 +142,8 @@ class FlowAggregationHeadWithResidual(nn.Module):
             if free_residual_with_affine_quadratic:
                 num_u_dim = 5
                 coord_map = torch.stack((coord_map[0], coord_map[1], coord_map[0] * coord_map[0], coord_map[1]
-                                        * coord_map[1], coord_map[0] * coord_map[1]), dim=2).view((-1, num_u_dim)).float().cuda()
+                                         * coord_map[1], coord_map[0] * coord_map[1]), dim=2).view(
+                    (-1, num_u_dim)).float().cuda()
             else:
                 coord_map = torch.stack(coord_map, dim=2).view(
                     (-1, 2)).float().cuda()
@@ -240,16 +243,16 @@ class FlowAggregationHeadWithResidual(nn.Module):
         B, C, H, W = mask.shape
         # Normalize the mask spatially
         mask_spatial_normalized = mask / \
-            mask.view(B, C, H * W, 1).sum(dim=2, keepdim=True)
+                                  mask.view(B, C, H * W, 1).sum(dim=2, keepdim=True)
 
         # flow before aggregation: [B, C=2, H, W]
         flow_agg = self.flow_feat_before_agg(flow)
         assert flow_agg.shape[2:] == mask_spatial_normalized.shape[2:
-                                                                   ], f"{flow_agg.shape[2:]} != {mask_spatial_normalized.shape[2:]} (should match on spatial dimension)"
+                                     ], f"{flow_agg.shape[2:]} != {mask_spatial_normalized.shape[2:]} (should match on spatial dimension)"
         # flow_agg[:, :, None, ...]: [B, C=64, 1, H, W]
         # mask_spatial_normalized[:, None, ...]: [B, 1, C=5, H, W]
         flow_agg = flow_agg[:, :, None, ...] * \
-            mask_spatial_normalized[:, None, ...]
+                   mask_spatial_normalized[:, None, ...]
         # flow_agg after view: [B, C1=64, C2=5, H*W]; after sum: [B, C1=64, C2=5]
         # Equivalent to the form with flatten:
         # flow_agg = flow_agg.view((*flow_agg.shape[:3], -1)).sum(dim=-1)
@@ -283,7 +286,7 @@ class FlowAggregationHeadWithResidual(nn.Module):
                 # print("Free residual without a limit")
                 # Dividing by 10 and multiplying by 10 cancels out
                 residual_adjustment = (
-                    all_pred_residual * mask[:, None, ...]).sum(dim=2)
+                        all_pred_residual * mask[:, None, ...]).sum(dim=2)
                 # print(residual_adjustment)
             flow_overall = flow_agg + residual_adjustment
         elif self.free_residual_with_affine:
@@ -314,86 +317,29 @@ class FlowAggregationHeadWithResidual(nn.Module):
         # gt_fw_flows: [B, im_num - 1, C=2, H, W]
         # gt_bw_flows: [B, im_num - 1, C=2, H, W]
 
-        flow_loss = {'seg_fw': 0., 'seg_bw': 0.}
-
-        flows = {'gt_flow': [], 'pred_flow': [], 'agg_flow': [],
-                 'residual_adj': [], 'affine_flow': []}
-
+        [fw_flow_agg, fw_residual_adjustment, bw_flow_agg, bw_residual_adjustment] = []
         batch_size, im_num, _, im_h, im_w = imgs.shape
-        # im_num: number of images in "pairs" (usually 2)
-        assert im_num == 2, "Other im_num not implemented"
-
+        # im_num = 3 when synthetic blur image
         for i in range(1, im_num):
             # Now we match the flow for simplicity.
 
             # masks: [B, 2, C=5, H, W]
             # mask1: [B, C=5, H, W]
-            mask1 = masks[:, i-1, :, :, :]
-            mask2 = masks[:, i, :, :, :]
+            mask = masks[:, i, :, :, :]
 
             # Same index in fw and bw correspond to same frames (just fw and bw)
             # index i-1 corresponds to the flow between mask1 and mask2
             # gt_fw_flow, gt_bw_flow: [B, C=2, H, W]
-            gt_fw_flow = gt_fw_flows[:, i-1, ...]
-            gt_bw_flow = gt_bw_flows[:, i-1, ...]
+            gt_fw_flow = gt_fw_flows[:, i - 1, ...]
+            gt_bw_flow = gt_bw_flows[:, i - 1, ...]
 
             gt_fw_flow = self.norm_and_clamp_flow(gt_fw_flow)
             gt_bw_flow = self.norm_and_clamp_flow(gt_bw_flow)
 
             # fw_flow_overall, bw_flow_overall: [B, C=2, H, W]
             fw_flow_overall, fw_flow_agg, fw_residual_adjustment, fw_flow_affine = self.aggregate_flow_with_residual(
-                mask1, gt_fw_flow, all_pred_residual_fw)
+                mask, gt_fw_flow, all_pred_residual_fw)
             bw_flow_overall, bw_flow_agg, bw_residual_adjustment, bw_flow_affine = self.aggregate_flow_with_residual(
-                mask2, gt_bw_flow, all_pred_residual_bw)
+                mask, gt_bw_flow, all_pred_residual_bw)
 
-            # two_frame = torch.cat([im1, im2], 1)
-            # res_dict = self.flownet(two_frame, [mask1, mask2], with_bk=True)
-
-            # loss = self.get_loss(res_dict['flows_fw'], res_dict['flows_bw'])
-            # loss_all = self.get_loss(
-            #     res_dict['flows_fw_all'], res_dict['flows_bw_all'])
-
-            # flow_loss['seg'] += loss
-            # flow_loss['whole'] += loss_all
-
-            if not self.outlier_robust_loss:
-                flow_loss['seg_fw'] += ((gt_fw_flow -
-                                        fw_flow_overall).abs()).view(-1).mean()
-                flow_loss['seg_bw'] += ((gt_bw_flow -
-                                        bw_flow_overall).abs()).view(-1).mean()
-            else:
-                flow_loss['seg_fw'] += ((((gt_fw_flow - fw_flow_overall).abs()
-                                          ).view(-1) + self.eps) ** self.q).mean()
-                flow_loss['seg_bw'] += ((((gt_bw_flow - bw_flow_overall).abs()
-                                          ).view(-1) + self.eps) ** self.q).mean()
-
-            _h, _w, flow, flow2 = get_norm_flow(
-                lis1=gt_fw_flow, lis2=gt_bw_flow)
-            # After cat: [B, C=4, H, W]
-            flows['gt_flow'].append(torch.cat([flow, flow2], dim=1))
-
-            _h, _w, flow, flow2 = get_norm_flow(
-                lis1=fw_flow_overall, lis2=bw_flow_overall)
-            # After cat: [B, C=4, H, W]
-            flows['pred_flow'].append(torch.cat([flow, flow2], dim=1))
-
-            _h, _w, flow, flow2 = get_norm_flow(
-                lis1=fw_flow_agg, lis2=bw_flow_agg)
-            # After cat: [B, C=4, H, W]
-            flows['agg_flow'].append(torch.cat([flow, flow2], dim=1))
-
-            _h, _w, flow, flow2 = get_norm_flow(
-                lis1=fw_residual_adjustment, lis2=bw_residual_adjustment)
-            # After cat: [B, C=4, H, W]
-            flows['residual_adj'].append(torch.cat([flow, flow2], dim=1))
-
-            if fw_flow_affine is not None:
-                # `fw_flow_affine` is not None means `bw_flow_affine` is not None
-                _h, _w, flow, flow2 = get_norm_flow(
-                    lis1=fw_flow_affine, lis2=bw_flow_affine)
-                # After cat: [B, C=4, H, W]
-                flows['affine_flow'].append(torch.cat([flow, flow2], dim=1))
-
-        flow_loss['seg'] = flow_loss['seg_fw'] + flow_loss['seg_bw']
-
-        return flows, flow_loss
+        return fw_flow_agg, fw_residual_adjustment, bw_flow_agg, bw_residual_adjustment

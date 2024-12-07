@@ -23,5 +23,5 @@ def rename_files_in_directory(root_dir, ext='.flo'):
                 print(f"Renamed {old_path} to {new_path}")
 
 if __name__ == "__main__":
-    root_directory = '/media/yjh/yjh/LightReBlur/VDV/test/BackwardFlows_NewCT'  # 替换为你的根目录
-    rename_files_in_directory(root_directory,ext = '.flo')
+    root_directory = '/media/yjh/yjh/LightReBlur/code/RCF/data/data_vdv/Annotations'  # 替换为你的根目录
+    rename_files_in_directory(root_directory,ext = '.jpg')

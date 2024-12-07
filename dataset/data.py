@@ -5,8 +5,10 @@ import os
 from PIL import Image
 from utils.frame_utils import readFlow
 
+
 class VideoDataset(torch.utils.data.Dataset):
-    def __init__(self, root, split, training, frame_num=2, load_flow=False, load_pl=False, transform=None, subsample_frame_interval=None, flow_suffix="", zero_ann=False, pl_root=None):
+    def __init__(self, root, split, training, frame_num=2, load_flow=False, load_pl=False, transform=None,
+                 subsample_frame_interval=None, flow_suffix="", zero_ann=False, pl_root=None):
         super().__init__()
 
         file_path = os.path.join(root, split)
@@ -55,8 +57,6 @@ class VideoDataset(torch.utils.data.Dataset):
         if self.load_pl:
             assert self.transform.has_pl, "load_pl needs to match with has_pl in transform"
 
-        if not self.training:
-            assert self.frame_num == 1, f"You need single frames for evaluaion but have {self.frame_num} frames"
 
     def load_image(self, path, convert_format="RGB"):
         with open(path, "rb") as f:
@@ -73,33 +73,43 @@ class VideoDataset(torch.utils.data.Dataset):
 
         frame_ind = index - self.seq_len_cumsum[seq_ind_within_subset]
 
-        # We don't get the last `self.frame_num - 1` frame(s) since we need current and next frame
+        # We don't get the last `self.frame_num - 1` frame(s) and the first frame since we need current and next & last frame
         if frame_ind >= self.seq_lens[seq_ind_within_subset] - (self.frame_num - 1):
             frame_ind -= self.frame_num - 1
-            assert self.training, f"In evaluation, we should use single frame to evaluate. Index: {index}, frame index: {frame_ind}."
+        if frame_ind == 0:
+            frame_ind = 1
 
         current_seq = self.seq_frames_path_all[seq_ind_within_subset]
 
         images = []
-        for i in range(self.frame_num):
-            path = current_seq[frame_ind + i]
-            image = self.load_image(path)
-            images.append(image)
+        if self.training:
+            for i in range(self.frame_num):
+                path = current_seq[frame_ind + i]
+                image = self.load_image(path)
+                images.append(image)
+        if not self.training:
+            for i in range(self.frame_num + 1):
+                path = current_seq[-1 * (self.frame_num - 1) + frame_ind]
+                image = self.load_image(path)
+                images.append(image)
 
         seq_name = self.seq_names[seq_ind_within_subset]
 
         ret = {
-            'imgs': images, 
+            'imgs': images,
             'seq_ids': seq_ind_within_subset,
-            'seq_names': seq_name, 
-            'paths': current_seq[frame_ind:frame_ind+self.frame_num], 
-            'frame_ind_start': frame_ind, 
+            'seq_names': seq_name,
+            'frame_ind_start': frame_ind,
             'seg_fields': []
         }
+        if self.training:
+            ret['paths'] = current_seq[frame_ind:frame_ind + self.frame_num]
+        else:
+            ret['paths'] = current_seq[-1 * (self.frame_num - 1) + frame_ind: (self.frame_num - 1) + frame_ind + 1]
+
+
 
         if not self.training:
-            # Assume we have only one frame
-            assert i == 0, "In eval, we should have one frame only."
             if not self.zero_ann:
                 path = current_seq[frame_ind].replace(
                     "JPEGImages", "Annotations")
@@ -114,14 +124,16 @@ class VideoDataset(torch.utils.data.Dataset):
         if self.load_flow:
             gt_fw_flows = []
             gt_bw_flows = []
-            for i in range(1, self.frame_num): # 00001.jpg in Flow is the flow from 0 to 1
+            for i in range(1, self.frame_num):  # 00001.jpg in Flow is the flow from 0 to 1
                 fw_flow_path = current_seq[frame_ind + i].replace(
                     "JPEGImages", "Flows" + self.flow_suffix)[:-4] + ".flo"
-                bw_flow_path = current_seq[frame_ind + i].replace(
-                    "JPEGImages", "BackwardFlows" + self.flow_suffix)[:-4] + ".flo"
-                if False: # debug
-                    fw_flow_path = "/home/l/lo/longlian/00001.npy"
-                    bw_flow_path = "/home/l/lo/longlian/00001.npy"
+                # when training, we need to load the flow t->t+1 and t+1->t;while inference for generate blur image ,we need to load the flow t->t+1 and t->t-1
+                if self.training:
+                    bw_flow_path = current_seq[frame_ind + i].replace(
+                        "JPEGImages", "BackwardFlows" + self.flow_suffix)[:-4] + ".flo"
+                else:
+                    bw_flow_path = current_seq[frame_ind].replace(
+                        "JPEGImages", "BackwardFlows" + self.flow_suffix)[:-4] + ".flo"
                 gt_fw_flow = readFlow(fw_flow_path)
                 gt_bw_flow = readFlow(bw_flow_path)
 
@@ -158,8 +170,9 @@ class VideoDataset(torch.utils.data.Dataset):
 
 if __name__ == "__main__":
     np.random.seed(1)
-    
-    dataset = VideoDataset('../data/data_SegTrackv2_resized', training=True, load_flow=True, split='trainval.txt', flow_suffix="_NewCT")
+
+    dataset = VideoDataset('../data/data_SegTrackv2_resized', training=True, load_flow=True, split='trainval.txt',
+                           flow_suffix="_NewCT")
 
     for item in dataset:
         continue

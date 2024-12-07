@@ -17,14 +17,17 @@ from .flow_aggregation_head_with_residual import FlowAggregationHeadWithResidual
 from .fcn_head import FCNHead
 from .compactness_head import CompactnessHead
 from .crf_head import CRFHead
-
+from tools.localBlur.generateBlur import generateBlurFlow
+from tools.localBlur.blur import create_lookup_table
 from copy import deepcopy
 
 logger = utils.get_logger()
 
+
 class RCFModel(nn.Module):
     """RCFModel
     """
+
     def __init__(self,
                  args,
                  backbone2,
@@ -58,15 +61,20 @@ class RCFModel(nn.Module):
                  freeze_backbone=False,
                  object_aware_sharpening=False,
                  separate_residual=False,
-                 allow_mask_resize=False):
+                 allow_mask_resize=False,
+                 tau=1.0,
+                 num_frame=20,
+                 flow_range=50
+                 ):
         super(RCFModel, self).__init__()
         self.args = args
         self.save_dir = os.path.join(args.checkpoints_dir, "saved")
         self.save_dir_eval = os.path.join(args.checkpoints_dir, getattr(args, "saved_eval_dir_name", "saved_eval"))
-        self.save_dir_eval_export = os.path.join(args.checkpoints_dir, getattr(args, "saved_eval_export_dir_name", "saved_eval_export"))
+        self.save_dir_eval_export = os.path.join(args.checkpoints_dir,
+                                                 getattr(args, "saved_eval_export_dir_name", "saved_eval_export"))
 
         self.backbone2, self.backbone2_ema = self.create_backbone_with_ema(backbone2)
-        
+
         # Moved from decoder in v1 to main module
         self.align_corners = align_corners
 
@@ -107,21 +115,21 @@ class RCFModel(nn.Module):
         self.w_sharpen = w_sharpen
         self.t_sharpen = t_sharpen
         self.w_entropy = w_entropy
-        
+
         assert not (w_sharpen != 0 and w_entropy != 0), "Only one of w_entropy and w_sharpen could be nonzero"
-        
+
         self.w_pl = w_pl
         if self.w_pl > 0:
             assert self.args.object_channel is not None, "Pseudo label loss requires an object channel to be set at the beginning"
             self.pl_pos_weight = pl_pos_weight
             self.pl_neg_weight = pl_neg_weight
             self.pl_mask_pos_th = pl_mask_pos_th
-        
+
         self.w_crf = w_crf
         if crf_head:
             self.crf_head = globals()[crf_head.pop('type')](args=self.args, **crf_head)
             assert self.w_crf != 0, "CRF head is used but weight is 0"
-            
+
             # CRF is binary, but it is non-binary after resize.
             self.crf_pos_weight = crf_pos_weight
             self.crf_neg_weight = crf_neg_weight
@@ -129,29 +137,41 @@ class RCFModel(nn.Module):
             self.crf_mask_pos_th = crf_mask_pos_th
         else:
             self.crf_head = None
-        
+
         self.crf_use_ema = crf_use_ema
-        
+
         self.ema_m = ema_m
-        
+
         self.log_interval = log_interval
 
         self.mask_size = tuple(mask_size)
         self.allow_mask_resize = allow_mask_resize
 
         self.object_aware_sharpening = object_aware_sharpening
-        
+
         # separate_residual: use different output conv for fw and bw residual
         self.separate_residual = separate_residual
-        
+
         self.eval_on_ema = getattr(self.args, 'eval_on_ema', False)
-        
+
         if self.eval_on_ema:
             assert self.backbone2_ema is not None and self.decode_head2_ema is not None, "Eval on EMA requires EMA to be enabled"
             logger.info("Evaluating EMA model")
-        
+
         self.init_ema()
-        
+
+        # generate the localblur synthetic datasets
+        kernel_size = flow_range * 2 + 1
+
+        lookup_table_file = f'tools/localBlur/lookup_table_{kernel_size}_{flow_range}_{tau}_{num_frame}.npy'
+
+        if os.path.exists(lookup_table_file):
+            lookup_table = np.load(lookup_table_file)
+        else:
+            lookup_table = create_lookup_table(kernel_size=kernel_size, flow_range=flow_range, tau=tau,
+                                               num_frame=num_frame)
+            np.save(lookup_table_file, lookup_table)
+
     def init_ema(self):
         if self.backbone2_ema is not None:
             utils.copy_param_and_buffer(src=self.backbone2, dest=self.backbone2_ema)
@@ -187,7 +207,7 @@ class RCFModel(nn.Module):
             decode_head_ema.eval()
         else:
             decode_head_ema = None
-        
+
         return decode_head, decode_head_ema
 
     def create_decode_head(self, decode_head):
@@ -272,21 +292,50 @@ class RCFModel(nn.Module):
         for idx, tosave_item in enumerate(tosave):
             self.export_seg(tosave_item, paths, seq_ids, seq_names, name, train_iter, subdir=str(idx))
 
-    def forward_eval(self, imgs, seq_ids, seq_names, paths, return_pred_vis_list=False):
-        losses = dict()
-        # Typically: _h: 392, _w: 697 (average between 384 and 400)
+    def forward_eval(self, imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, gts, return_pred_vis_list=False):
+        # Typically: _h: 540, _w: 960
         batch_size, im_num, num_channels, _h, _w = imgs.shape
+        flow_num = gt_fw_flows.shape[1]
+
         img_3 = imgs.view(batch_size * im_num, num_channels, _h, _w)
         if self.eval_on_ema:
             all_feat = self.extract_feat(img_3, self.backbone2_ema)
-            all_pred_mask = self._decode_head_forward(all_feat, self.decode_head2_ema) # [B, 256, 98, 175], [B, 2048, 49, 88], [B, 512, 49, 88], [B, 1024, 49, 88]
+            all_pred_mask = self._decode_head_forward(all_feat,
+                                                      self.decode_head2_ema)  # [B, 256, 98, 175], [B, 2048, 49, 88], [B, 512, 49, 88], [B, 1024, 49, 88]
         else:
             all_feat = self.extract_feat(img_3, self.backbone2)
-            all_pred_mask = self._decode_head_forward(all_feat, self.decode_head2) # [B, 256, 98, 175], [B, 2048, 49, 88], [B, 512, 49, 88], [B, 1024, 49, 88]
+            all_pred_mask = self._decode_head_forward(all_feat,
+                                                      self.decode_head2)  # [B, 256, 98, 175], [B, 2048, 49, 88], [B, 512, 49, 88], [B, 1024, 49, 88]
+        # step 1: generate the residual flow (forward and backward) for the middle frame
+        if self.allow_mask_resize and (all_pred_mask.shape[-2:] != self.mask_size):
+            all_pred_mask = self.resize(all_pred_mask, self.mask_size)
+
+        all_pred_residual_fw, all_pred_residual_bw = self.pred_separate_residual_systhesis(all_feat, batch_size, im_num)
+
         _, _, _feat_h, _feat_w = all_pred_mask.shape
         all_pred_mask = all_pred_mask.view(
             batch_size, im_num, self.mask_layer, _feat_h, _feat_w)
         all_pred_mask = F.softmax(all_pred_mask, dim=2)
+
+        # step 2: load the flow generated by MS-raft ,already resize and rescale to (540.960)
+        gt_fw_flows = self.resize(gt_fw_flows.view(batch_size * flow_num, *gt_fw_flows.shape[2:]), self.mask_size)
+        gt_bw_flows = self.resize(gt_bw_flows.view(batch_size * flow_num, *gt_bw_flows.shape[2:]), self.mask_size)
+        gt_fw_flows = gt_fw_flows.view(batch_size, flow_num, 2, *self.mask_size)
+        gt_bw_flows = gt_bw_flows.view(batch_size, flow_num, 2, *self.mask_size)
+
+        # step 3: generate the main body flow
+        fw_flow_agg, fw_residual_adjustment, bw_flow_agg, bw_residual_adjustment = self.decode_head(imgs, all_pred_mask,
+                                                                                                    gt_fw_flows,
+                                                                                                    gt_bw_flows,
+                                                                                                    all_pred_residual_fw,
+                                                                                                    all_pred_residual_bw)
+        # step 3: generate the blurred flow using kernel
+        blurred_img = generateBlurFlow(gt_fw_flows, gt_bw_flows, fw_flow_agg, fw_residual_adjustment, bw_flow_agg,
+                                       bw_residual_adjustment, imgs, gts)
+
+        # step 4: save the blurred image
+        upsampled_blurred_img = self.resize(blurred_img, (540, 960))
+        self.export_seg(upsampled_blurred_img, paths, seq_ids, seq_names, train_iter=self.train_iter)
 
         ith_img = imgs[:, 0, :, :, :]
         ith_img = ith_img.detach()
@@ -300,7 +349,7 @@ class RCFModel(nn.Module):
 
         for _i_ in range(min(self.mask_layer, pred_masks.shape[1])):
             _pred_mask_resize = self.resize(
-                pred_masks[:, _i_:_i_+1, :, :], (toH * 2, toW * 2)).repeat(1, 3, 1, 1)
+                pred_masks[:, _i_:_i_ + 1, :, :], (toH * 2, toW * 2)).repeat(1, 3, 1, 1)
             pred_vis_list.append(_pred_mask_resize)
         tosave = torch.cat([ith_img_resize] + pred_vis_list, 2)
 
@@ -310,9 +359,11 @@ class RCFModel(nn.Module):
                 # Note that saved images are resized to 2x (for visualization and here we did not change the resize)
                 if getattr(self.args, "export_all_seg", False):
                     # Export all channels
-                    self.export_all_seg(pred_vis_list, paths, seq_ids, seq_names, name='pred_seg', train_iter=self.train_iter)
-                else: # Export object channel only
-                    self.export_seg(pred_vis_list[self.args.object_channel], paths, seq_ids, seq_names, name='pred_seg', train_iter=self.train_iter)
+                    self.export_all_seg(pred_vis_list, paths, seq_ids, seq_names, name='pred_seg',
+                                        train_iter=self.train_iter)
+                else:  # Export object channel only
+                    self.export_seg(pred_vis_list[self.args.object_channel], paths, seq_ids, seq_names, name='pred_seg',
+                                    train_iter=self.train_iter)
 
         if return_pred_vis_list:
             return pred_masks, pred_vis_list
@@ -324,14 +375,29 @@ class RCFModel(nn.Module):
         # feats (before process): a list of [B * I, C, 48, 48]
         feats = [feat.unflatten(0, (batch_size, im_num)).flatten(1, 2) for feat in feats]
         # feats (processed): a list of [B, I * C, 48, 48]
-        
+
         # all_pred_residual: [B, 2*2*C, 48, 48]
         # 2*2*C: [fw, bw] * [x, y] * C
         all_pred_residual = self._decode_head_forward(feats, self.decode_head3)
         # all_pred_residual_fw: [B, 2*C, 48, 48]
         # all_pred_residual_bw: [B, 2*C, 48, 48]
-        all_pred_residual_fw, all_pred_residual_bw = all_pred_residual[:, :2*self.num_classes], all_pred_residual[:, 2*self.num_classes:]
-        
+        all_pred_residual_fw, all_pred_residual_bw = all_pred_residual[:, :2 * self.num_classes], all_pred_residual[:,
+                                                                                                  2 * self.num_classes:]
+
+        return all_pred_residual_fw, all_pred_residual_bw
+
+    def pred_separate_residual_systhesis(self, feats, batch_size, im_num):
+        # Reshape feats from [B*I, C, H, W] to [B, I, C, H, W]
+        feats = tuple(feat.view(batch_size, im_num, *feat.shape[1:]) for feat in feats)
+
+        # Split feats into feats1 and feats2 based on the specified indices
+        feats1 = tuple(feat[:, 0:2, :, :, :].view(-1, *feat.shape[2:]) for feat in feats)
+        feats2 = tuple(feat[:, 1:3, :, :, :].view(-1, *feat.shape[2:]) for feat in feats)
+
+        # Call pred_separate_residual with the split features
+        _, all_pred_residual_bw = self.pred_separate_residual(feats1, batch_size, 2)
+        all_pred_residual_fw, _ = self.pred_separate_residual(feats2, batch_size, 2)
+
         return all_pred_residual_fw, all_pred_residual_bw
 
     def pred_joint_residual(self, unflattened_feat):
@@ -339,7 +405,9 @@ class RCFModel(nn.Module):
 
         # all_pred_residual_fw, all_pred_residual_bw: [B, 2*C, 48, 48]
         all_pred_residual_fw = self._decode_head_forward([unflattened_feat.flatten(1, 2)], self.decode_head3)
-        all_pred_residual_bw = self._decode_head_forward([unflattened_feat[:, torch.tensor([1, 0], device=unflattened_feat.device)].flatten(1, 2)], self.decode_head3)
+        all_pred_residual_bw = self._decode_head_forward(
+            [unflattened_feat[:, torch.tensor([1, 0], device=unflattened_feat.device)].flatten(1, 2)],
+            self.decode_head3)
 
         # Alternative:
         # feat_img1, feat_img2 = feat[:, 0], feat[:, 1]
@@ -412,7 +480,7 @@ class RCFModel(nn.Module):
         batch_size, im_num, num_channels, _h, _w = imgs.shape
         # Usually `I - 1` (I is im_num)
         flow_num = gt_fw_flows.shape[1]
-        
+
         img_3 = imgs.view(batch_size * im_num, num_channels, _h, _w)
         # [B * I, 256, 96, 96], [B * I, 512, 48, 48], [B * I, 1024, 48, 48], [B * I, 2048, 48, 48]
         all_feat = self.extract_feat(img_3, self.backbone2)
@@ -425,7 +493,8 @@ class RCFModel(nn.Module):
             all_pred_residual_fw, all_pred_residual_bw = self.pred_separate_residual(all_feat, batch_size, im_num)
         else:
             # Only supports one resolution for joint residual
-            all_pred_residual_fw, all_pred_residual_bw = self.pred_joint_residual(all_feat[-1].unflatten(0, (batch_size, im_num)))
+            all_pred_residual_fw, all_pred_residual_bw = self.pred_joint_residual(
+                all_feat[-1].unflatten(0, (batch_size, im_num)))
         _, _, _feat_h, _feat_w = all_pred_mask.shape
         all_pred_mask = all_pred_mask.view(
             batch_size, im_num, self.mask_layer, _feat_h, _feat_w)
@@ -442,7 +511,8 @@ class RCFModel(nn.Module):
         gt_bw_flows = gt_bw_flows.view(batch_size, flow_num, 2, *self.mask_size)
 
         # Get flow from the flow head (pred_flows is normalized for visualization)
-        pred_flows, loss_flow = self.decode_head(imgs, all_pred_mask, gt_fw_flows, gt_bw_flows, all_pred_residual_fw, all_pred_residual_bw)
+        pred_flows, loss_flow = self.decode_head(imgs, all_pred_mask, gt_fw_flows, gt_bw_flows, all_pred_residual_fw,
+                                                 all_pred_residual_bw)
         assert len(pred_flows['gt_flow']) == 1 and len(pred_flows['pred_flow']) == 1
         pred_flows_resize = [self.resize(it, all_pred_mask.shape[-2:]) for it in pred_flows['pred_flow']][0]
         agg_flow_resize = [self.resize(it, all_pred_mask.shape[-2:]) for it in pred_flows['agg_flow']][0]
@@ -454,7 +524,7 @@ class RCFModel(nn.Module):
             affine_flow_resize = None
 
         if self.train_iter % self.log_interval == 0:
-            mask_mat = [[all_pred_mask[:, it, layer_idx:layer_idx+1, :, :].repeat(
+            mask_mat = [[all_pred_mask[:, it, layer_idx:layer_idx + 1, :, :].repeat(
                 1, 3, 1, 1) for it in range(im_num)] for layer_idx in range(self.mask_layer)]
             pic_mask_mat = [torch.cat(it, 0) for it in mask_mat]
 
@@ -470,7 +540,8 @@ class RCFModel(nn.Module):
         loss = loss_input_warp_seg * self.w_seg
         if self.w_sharpen > 0 and ((self.args.object_channel is not None) or (not self.object_aware_sharpening)):
             if self.object_aware_sharpening:
-                loss_sharpen = self.get_sharpen_loss(all_pred_mask, log_all_pred_mask, object_channel=self.args.object_channel)
+                loss_sharpen = self.get_sharpen_loss(all_pred_mask, log_all_pred_mask,
+                                                     object_channel=self.args.object_channel)
             else:
                 loss_sharpen = self.get_sharpen_loss(all_pred_mask, log_all_pred_mask)
             loss = loss + loss_sharpen * self.w_sharpen
@@ -479,20 +550,20 @@ class RCFModel(nn.Module):
             loss_entropy = self.get_entropy_loss(all_pred_mask, log_all_pred_mask)
             loss = loss + loss_entropy * self.w_entropy
             losses["loss_entropy"] = loss_entropy
-        
+
         if self.compactness_head:
             loss_compactness = self.compactness_head.get_compactness_loss(all_pred_mask)
             if loss_compactness is not None:
                 # It's None if we use object channel as compact channel (compact channel is set to -1), but we don't have object channel yet
                 losses["loss_compactness"] = loss_compactness
                 loss = loss + loss_compactness * self.w_compactness
-        
+
         if self.w_pl > 0:
             pl_masks = self.resize(pl_masks, self.mask_size)
             loss_pl = self.get_pl_loss(all_pred_mask, pl_masks)
             losses["loss_pl"] = loss_pl
             loss = loss + loss_pl * self.w_pl
-        
+
         if self.w_crf > 0:
             if self.crf_use_ema:
                 # Note that the ema modules are run in eval time and could differ from the main module even if the input and the parameters are the same. Furthermore, there is dropout in decode_head2.
@@ -511,7 +582,9 @@ class RCFModel(nn.Module):
                 all_pred_mask_crf = all_pred_mask
             # img_3: [B * I, 3, H, W]
             # Before resize: [B * I, 1, 96, 96]
-            resized_mask = self.resize(all_pred_mask_crf.detach().flatten(0, 1)[:, self.args.object_channel:self.args.object_channel+1, ...], img_3.shape[-2:])
+            resized_mask = self.resize(
+                all_pred_mask_crf.detach().flatten(0, 1)[:, self.args.object_channel:self.args.object_channel + 1, ...],
+                img_3.shape[-2:])
             # resized_mask[:, 0, ...]: [B * I, H, W]
             crf_masks = self.crf_head(img_3, resized_mask[:, 0, ...]).unflatten(0, (batch_size, im_num))
             # crf_masks (before): [B, I, H, W]
@@ -521,13 +594,13 @@ class RCFModel(nn.Module):
             loss_crf = self.get_crf_loss(all_pred_mask, crf_masks)
             losses["loss_crf"] = loss_crf
             loss = loss + loss_crf * self.w_crf
-        
+
         if self.backbone2_ema:
             utils.momentum_update_param_and_buffer(src=self.backbone2, dest=self.backbone2_ema, m=self.ema_m)
-        
+
         if self.decode_head2_ema:
             utils.momentum_update_param_and_buffer(src=self.decode_head2, dest=self.decode_head2_ema, m=self.ema_m)
-        
+
         losses["loss"] = loss
 
         line_mean_loss = 0.0
@@ -561,21 +634,24 @@ class RCFModel(nn.Module):
 
             if self.train_iter % self.log_interval == 0:
                 for _batch_idx in range(batch_size):
-                    flow_color_3_pred = self.let_tensor_vis(pred_flow[_batch_idx:_batch_idx+1])
-                    flow_color_3_gt = self.let_tensor_vis(gt_flow[_batch_idx:_batch_idx+1])
-                    flow_color_3_agg = self.let_tensor_vis(agg_flow_item[_batch_idx:_batch_idx+1])
-                    flow_color_3_adj = self.let_tensor_vis(residual_adj_item[_batch_idx:_batch_idx+1])
-                    
+                    flow_color_3_pred = self.let_tensor_vis(pred_flow[_batch_idx:_batch_idx + 1])
+                    flow_color_3_gt = self.let_tensor_vis(gt_flow[_batch_idx:_batch_idx + 1])
+                    flow_color_3_agg = self.let_tensor_vis(agg_flow_item[_batch_idx:_batch_idx + 1])
+                    flow_color_3_adj = self.let_tensor_vis(residual_adj_item[_batch_idx:_batch_idx + 1])
+
                     if affine_flow_item is not None:
-                        flow_color_3_affine = self.let_tensor_vis(affine_flow_item[_batch_idx:_batch_idx+1])
+                        flow_color_3_affine = self.let_tensor_vis(affine_flow_item[_batch_idx:_batch_idx + 1])
                         # Order: Pred, GT, Agg, Affine, Adj
-                        flow_color_3 = torch.cat([flow_color_3_pred, flow_color_3_gt, flow_color_3_agg, flow_color_3_affine, flow_color_3_adj], dim=2)
+                        flow_color_3 = torch.cat(
+                            [flow_color_3_pred, flow_color_3_gt, flow_color_3_agg, flow_color_3_affine,
+                             flow_color_3_adj], dim=2)
                     else:
-                        flow_color_3 = torch.cat([flow_color_3_pred, flow_color_3_gt, flow_color_3_agg, flow_color_3_adj], dim=2)
+                        flow_color_3 = torch.cat(
+                            [flow_color_3_pred, flow_color_3_gt, flow_color_3_agg, flow_color_3_adj], dim=2)
                     ith_flowxy_ori.append(flow_color_3 / 255.0)
                 ith_img_resize = self.resize(ith_img, pred_mask.shape[-2:])
                 # This is an approximate un-normalization for visualization
-                ith_imgs.append((ith_img_resize + 2.0)/4.0)
+                ith_imgs.append((ith_img_resize + 2.0) / 4.0)
 
         if self.train_iter % self.log_interval == 0:
             # Filename uses idx_in_batch
@@ -586,20 +662,21 @@ class RCFModel(nn.Module):
             pic_ith_flowxy_ori = torch.cat(ith_flowxy_ori, 0)
 
             if pl_masks is not None:
-                pl_masks_vis = [pl_masks[:, it:it+1, :, :].repeat(
+                pl_masks_vis = [pl_masks[:, it:it + 1, :, :].repeat(
                     1, 3, 1, 1) for it in range(im_num)]
                 pl_masks_vis = torch.cat(pl_masks_vis, 0)
-                
+
                 tosave = torch.cat(pic_mask_mat + [pic_ith_imgs, pic_ith_flowxy_ori, pl_masks_vis], dim=2)
             else:
                 tosave = torch.cat(pic_mask_mat + [pic_ith_imgs, pic_ith_flowxy_ori], dim=2)
-            
+
             # Visualization:
             # Enable saving when log interval is 1
             if self.log_interval == 1:
                 if self.train_iter == 0:
                     os.makedirs(f"{self.save_dir}_train_export", exist_ok=False)
-                torch.save([imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, pl_masks, tosave], f"{self.save_dir}_train_export/{seq_names[idx_in_batch]}_{img_frame_id}.pth")
+                torch.save([imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, pl_masks, tosave],
+                           f"{self.save_dir}_train_export/{seq_names[idx_in_batch]}_{img_frame_id}.pth")
             try:
                 fn_name = '{}/train_iter{:07d}_{}_{}_{}_img_pred_recons.jpg'.format(
                     self.save_dir, self.train_iter, seq_names[idx_in_batch], seq_ids[idx_in_batch], img_frame_id)
@@ -611,7 +688,7 @@ class RCFModel(nn.Module):
         return losses
 
     def forward(self, x, return_pred_vis_list=False):
-        imgs, seq_ids, seq_names, paths = x['imgs'], x['seq_ids'], x['seq_names'], x['paths']
+        imgs, seq_ids, seq_names, paths, gts = x['imgs'], x['seq_ids'], x['seq_names'], x['paths'], x['ann']
         # Stack images only (not annotations since they are not paired)
         imgs = torch.stack(imgs, dim=1)
         if self.training:
@@ -623,4 +700,6 @@ class RCFModel(nn.Module):
                 pl_masks = None
             return self.forward_train(imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, pl_masks)
         else:
-            return self.forward_eval(imgs, seq_ids, seq_names, paths, return_pred_vis_list=return_pred_vis_list)
+            gt_fw_flows, gt_bw_flows = torch.stack(x['gt_fw_flows'], dim=1), torch.stack(x['gt_bw_flows'], dim=1)
+            return self.forward_eval(imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, gts,
+                                     return_pred_vis_list=return_pred_vis_list)
