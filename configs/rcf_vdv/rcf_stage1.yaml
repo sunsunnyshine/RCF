@@ -1,7 +1,7 @@
 # Note: By default, this config uses trainval as training
 
 # Uses pre-extracted flows.
-batch_size: 2
+batch_size: 1
 epochs: 200
 learning_rate: 1.e-4
 optimizer: Adam

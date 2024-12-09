@@ -64,7 +64,8 @@ class RCFModel(nn.Module):
                  allow_mask_resize=False,
                  tau=1.0,
                  num_frame=20,
-                 flow_range=50
+                 flow_range=50,
+                 title_size=200
                  ):
         super(RCFModel, self).__init__()
         self.args = args
@@ -162,7 +163,6 @@ class RCFModel(nn.Module):
 
         # generate the localblur synthetic datasets
         kernel_size = flow_range * 2 + 1
-
         lookup_table_file = f'tools/localBlur/lookup_table_{kernel_size}_{flow_range}_{tau}_{num_frame}.npy'
 
         if os.path.exists(lookup_table_file):
@@ -171,6 +171,12 @@ class RCFModel(nn.Module):
             lookup_table = create_lookup_table(kernel_size=kernel_size, flow_range=flow_range, tau=tau,
                                                num_frame=num_frame)
             np.save(lookup_table_file, lookup_table)
+        # from numpy to tensor,and move to the same device as the model
+        self.lookup_table = torch.flatten(torch.tensor(lookup_table).cuda(), start_dim=-2, end_dim=-1).unsqueeze(
+            0).permute(0, 3, 1, 2)
+        self.flow_range = flow_range
+        self.title_size = title_size
+        self.saved_reblur_dir_name = os.path.join(args.checkpoints_dir, getattr(args, "saved_reblur_dir_name", "saved_reblur"))
 
     def init_ema(self):
         if self.backbone2_ema is not None:
@@ -292,7 +298,25 @@ class RCFModel(nn.Module):
         for idx, tosave_item in enumerate(tosave):
             self.export_seg(tosave_item, paths, seq_ids, seq_names, name, train_iter, subdir=str(idx))
 
-    def forward_eval(self, imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, gts, return_pred_vis_list=False):
+    @rank_zero_only
+    def export_reblur_result(self, tosave, paths, seq_ids, seq_names, name='reblur', subdir=''):
+        # tosave: [B, 3, mask_H, mask_W]
+        # 0 means current frame
+        if subdir:
+            subdir += '/'
+            if not os.path.exists(f'{self.saved_reblur_dir_name}/{subdir}'):
+                os.makedirs(f'{self.saved_reblur_dir_name}/{subdir}')
+        for idx_in_batch, (path, seq_name, seq_id) in enumerate(zip(paths[0], seq_names, seq_ids)):
+            img_frame_id = path.split('/')[-1][:-4]
+            fn_name = f'{self.saved_reblur_dir_name}/{subdir}{name}_{seq_name}_{img_frame_id}.png'
+            try:
+                torchvision.utils.save_image(tosave, fn_name)
+            except Exception as e:
+                logger.warn(f"Error in saving: {fn_name} {e}")
+
+    def forward_eval(self, imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, gts,origin_img,
+                     object_channel=None,
+                     return_pred_vis_list=False):
         # Typically: _h: 540, _w: 960
         batch_size, im_num, num_channels, _h, _w = imgs.shape
         flow_num = gt_fw_flows.shape[1]
@@ -324,18 +348,24 @@ class RCFModel(nn.Module):
         gt_bw_flows = gt_bw_flows.view(batch_size, flow_num, 2, *self.mask_size)
 
         # step 3: generate the main body flow
-        fw_flow_agg, fw_residual_adjustment, bw_flow_agg, bw_residual_adjustment = self.decode_head(imgs, all_pred_mask,
-                                                                                                    gt_fw_flows,
-                                                                                                    gt_bw_flows,
-                                                                                                    all_pred_residual_fw,
-                                                                                                    all_pred_residual_bw)
+        fw_flow_agg_object, fw_residual_adjustment_inner_object, bw_flow_agg_object, bw_residual_adjustment_inner_object = self.decode_head(
+            imgs, all_pred_mask,
+            gt_fw_flows,
+            gt_bw_flows,
+            all_pred_residual_fw,
+            all_pred_residual_bw, object_channel)
         # step 3: generate the blurred flow using kernel
-        blurred_img = generateBlurFlow(gt_fw_flows, gt_bw_flows, fw_flow_agg, fw_residual_adjustment, bw_flow_agg,
-                                       bw_residual_adjustment, imgs, gts)
+        blur_image_objectsharp, blur_image_objectblur = generateBlurFlow(gt_fw_flows, gt_bw_flows, fw_flow_agg_object,
+                                                                         fw_residual_adjustment_inner_object,
+                                                                         bw_flow_agg_object,
+                                                                         bw_residual_adjustment_inner_object,
+                                                                         imgs[:, 1], gts, origin_img, self.lookup_table,
+                                                                         self.flow_range, self.title_size)
 
-        # step 4: save the blurred image
-        upsampled_blurred_img = self.resize(blurred_img, (540, 960))
-        self.export_seg(upsampled_blurred_img, paths, seq_ids, seq_names, train_iter=self.train_iter)
+        # step 4: save the blurred image and the residual flow
+        self.export_reblur_result(blur_image_objectsharp, paths, seq_ids, seq_names, subdir='sharp')
+        self.export_reblur_result(blur_image_objectblur, paths, seq_ids, seq_names, subdir='blur')
+        self.export_reblur_result(self.let_tensor_vis(fw_residual_adjustment_inner_object)/255.0, paths, seq_ids, seq_names, subdir='fw_residual')
 
         ith_img = imgs[:, 0, :, :, :]
         ith_img = ith_img.detach()
@@ -687,8 +717,9 @@ class RCFModel(nn.Module):
 
         return losses
 
-    def forward(self, x, return_pred_vis_list=False):
-        imgs, seq_ids, seq_names, paths, gts = x['imgs'], x['seq_ids'], x['seq_names'], x['paths'], x['ann']
+    def forward(self, x, object_channel=None, return_pred_vis_list=False):
+        imgs, seq_ids, seq_names, paths, gts, origin_img = x['imgs'], x['seq_ids'], x['seq_names'], x['paths'], x[
+            'ann'], x['origin_img']
         # Stack images only (not annotations since they are not paired)
         imgs = torch.stack(imgs, dim=1)
         if self.training:
@@ -701,5 +732,6 @@ class RCFModel(nn.Module):
             return self.forward_train(imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, pl_masks)
         else:
             gt_fw_flows, gt_bw_flows = torch.stack(x['gt_fw_flows'], dim=1), torch.stack(x['gt_bw_flows'], dim=1)
-            return self.forward_eval(imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, gts,
+            return self.forward_eval(imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, gts/255, origin_img,
+                                     object_channel=object_channel,
                                      return_pred_vis_list=return_pred_vis_list)

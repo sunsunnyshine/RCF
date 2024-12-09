@@ -16,10 +16,13 @@ object_channel: 0
 test_dataset_kwargs:
   frame_num: 2
   load_flow: true
+  flow_suffix: "_NewCT"
+
 
 # In validation, it's save_eval
 saved_eval_dir_name: saved_eval_test
 saved_eval_export_dir_name: saved_eval_export
+saved_reblur_dir_name: saved_reblur
 
 eval_pos_th: -1
 eval_save: true

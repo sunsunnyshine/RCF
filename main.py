@@ -55,8 +55,9 @@ class Model(pl.LightningModule):
             # We may have validation in training
             os.makedirs(os.path.join(args.checkpoints_dir, getattr(args, "saved_eval_dir_name", "saved_eval")),
                         exist_ok=args.allow_overwriting_checkpoints_dir)
-            os.makedirs(os.path.join(args.checkpoints_dir, getattr(args, "saved_eval_export_dir_name", "saved_eval_export")),
-                        exist_ok=args.allow_overwriting_checkpoints_dir)
+            os.makedirs(
+                os.path.join(args.checkpoints_dir, getattr(args, "saved_eval_export_dir_name", "saved_eval_export")),
+                exist_ok=args.allow_overwriting_checkpoints_dir)
         if args.rank >= 0:
             torch.cuda.set_device(args.rank)
             trainer.strategy.barrier()
@@ -86,9 +87,9 @@ class Model(pl.LightningModule):
             # If the checkpoint is the main model, we load the main model.
             state_dict = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
             if getattr(self.args, "pretrained_model_backbone_only", False):
-                state_dict = {k:v for k, v in state_dict.items() if "backbone" in k}
+                state_dict = {k: v for k, v in state_dict.items() if "backbone" in k}
             example_key = list(state_dict.keys())[0]
-            
+
             ema_loaded = False
             ema_in_model = hasattr(self.model, 'backbone2_ema') and self.model.backbone2_ema is not None
             if example_key.startswith("model."):
@@ -97,25 +98,27 @@ class Model(pl.LightningModule):
                 ema_in_state_dict = len([k for k in state_dict.keys() if '_ema' in k])
                 if ema_in_model and not ema_in_state_dict:
                     assert self.model.decode_head2_ema is not None, "decode_head2_ema is not enabled with backbone2_ema enabled"
-                    logger.info("Detected EMA in model but not in state_dict, loading state_dict to both the main model and ema")
+                    logger.info(
+                        "Detected EMA in model but not in state_dict, loading state_dict to both the main model and ema")
                     ema_state_dict = {
-                        k.replace("backbone2", "backbone2_ema").replace("decode_head2", "decode_head2_ema"): v for k, v in state_dict.items() if "backbone2" in k or "decode_head2" in k
+                        k.replace("backbone2", "backbone2_ema").replace("decode_head2", "decode_head2_ema"): v for k, v
+                        in state_dict.items() if "backbone2" in k or "decode_head2" in k
                     }
                     state_dict_with_ema = {**state_dict, **ema_state_dict}
                 else:
                     # Do not need to modify the state_dict
                     state_dict_with_ema = state_dict
-                
+
                 if getattr(self.args, "drop_head_decode_head2", False):
                     logger.info("Dropping decode_head2 (with ema)")
                     state_dict_with_ema = {k: v for k, v in state_dict_with_ema.items() if "decode_head2" not in k}
-                
+
                 mismatches = self.load_state_dict(state_dict_with_ema, strict=False)
                 ema_loaded = True
             elif example_key.startswith("module."):
                 # Moco model
                 model_prefix = 'module.encoder_q'
-                
+
                 for k in list(state_dict.keys()):
                     # retain only student model up to before the embedding layer
                     if k.startswith(model_prefix) and not k.startswith(model_prefix + '.fc'):
@@ -137,7 +140,8 @@ class Model(pl.LightningModule):
 
             if not ema_loaded:
                 # To implement, call `self.model.init_ema()`
-                assert (getattr(self.model, "backbone2_ema", None) is None) and (getattr(self.model, "decode_head2_ema", None) is None), "EMA is enabled but weights are not loaded"
+                assert (getattr(self.model, "backbone2_ema", None) is None) and (getattr(self.model, "decode_head2_ema",
+                                                                                         None) is None), "EMA is enabled but weights are not loaded"
 
             logger.info(f"Mismatches in the pretrained model: {mismatches}")
         else:
@@ -145,15 +149,16 @@ class Model(pl.LightningModule):
 
         self.accumulate_training_loss = {}
 
-        self.object_channel = args.object_channel if args.object_channel is not None else os.environ.get("OBJECT_CHANNEL", None)
+        self.object_channel = args.object_channel if args.object_channel is not None else os.environ.get(
+            "OBJECT_CHANNEL", None)
         if isinstance(self.object_channel, str):
             self.object_channel = int(self.object_channel)
         # self.args.object_channel is for global use
         self.args.object_channel = self.object_channel
         logger.info(f"Using {self.object_channel} as object channel")
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, x, object_channel=None):
+        return self.model(x, object_channel)
 
     def training_step(self, batch, batch_idx):
         x = batch
@@ -163,14 +168,15 @@ class Model(pl.LightningModule):
         else:
             loss = losses
             losses = dict(loss=loss)
-        
+
         for loss_key, loss_value in losses.items():
             if 'loss' not in loss_key:
                 continue
-            self.accumulate_training_loss[loss_key] = self.accumulate_training_loss.get(loss_key, 0.) + loss_value.item()
+            self.accumulate_training_loss[loss_key] = self.accumulate_training_loss.get(loss_key,
+                                                                                        0.) + loss_value.item()
             if (batch_idx + 1) % self.args.loss_log_interval == 0:
                 self.log(f"train_{loss_key}", self.accumulate_training_loss[loss_key] /
-                        self.args.loss_log_interval, sync_dist=True, reduce_fx="mean")
+                         self.args.loss_log_interval, sync_dist=True, reduce_fx="mean")
                 self.accumulate_training_loss[loss_key] = 0.
 
         if torch.isnan(loss):
@@ -199,7 +205,7 @@ class Model(pl.LightningModule):
     @rank_zero_only
     def test_step(self, batch, batch_idx, always_use_max_iou_channel=False):
         x = batch
-        pred_masks_current_batch = self.forward(x)
+        pred_masks_current_batch = self.forward(x, self.object_channel)
         assert len(pred_masks_current_batch) == len(
             batch['ann']), f"{len(pred_masks_current_batch)} != {len(batch['ann'])}"
         pred_masks_current_batch_resize = utils.eval_utils._resize(
@@ -208,7 +214,7 @@ class Model(pl.LightningModule):
         num_channels = pred_masks_current_batch_resize.shape[1]
         if self.args.eval_pos_th != -1:
             pred_masks_current_batch_resize = (
-                pred_masks_current_batch_resize > self.args.eval_pos_th).long().cpu().numpy()
+                    pred_masks_current_batch_resize > self.args.eval_pos_th).long().cpu().numpy()
         else:
             pred_masks_current_batch_resize_max_idx = pred_masks_current_batch_resize.argmax(
                 dim=1)
@@ -226,7 +232,8 @@ class Model(pl.LightningModule):
             # index 1 selects the iou in the foreground
             if always_use_max_iou_channel or (self.object_channel is None):
                 frame_ious = [
-                    utils.iou(pred_mask_resize_item, ann, num_classes=2, ignore_index=-1)[1] for pred_mask_resize_item in pred_mask_resize]
+                    utils.iou(pred_mask_resize_item, ann, num_classes=2, ignore_index=-1)[1] for pred_mask_resize_item
+                    in pred_mask_resize]
                 max_channel = np.argmax(frame_ious)
                 self.max_channel_freq[max_channel] += 1
                 frame_iou = frame_ious[max_channel]
@@ -238,9 +245,10 @@ class Model(pl.LightningModule):
             iou_current_sequence.append(frame_iou)
 
     def test_epoch_end(self, outputs, name="test_miou", display_all=True):
-        if (self.object_channel is None) and (not self.trainer.sanity_checking) and ((self.current_epoch >= getattr(self.args, "set_object_channel_after_epoch", 1) - 1) or self.trainer.testing):
+        if (self.object_channel is None) and (not self.trainer.sanity_checking) and ((self.current_epoch >= getattr(
+                self.args, "set_object_channel_after_epoch", 1) - 1) or self.trainer.testing):
             # Set object channel only once (if `always_use_max_iou_channel` is set, object channel will be ignored, otherwise this will always be used)
-            if self.args.rank >= 0: # Distributed
+            if self.args.rank >= 0:  # Distributed
                 if self.args.rank == 0:
                     object_channel_current_rank = np.argmax(self.max_channel_freq)
                 else:
@@ -255,10 +263,11 @@ class Model(pl.LightningModule):
             self.object_channel = object_channel
             self.args.object_channel = self.object_channel
             if self.args.rank <= 0:
-                print(f"Rank {self.args.rank}: Set object channel to {self.object_channel} (Max channel distribution at local rank: {self.max_channel_freq})")
+                print(
+                    f"Rank {self.args.rank}: Set object channel to {self.object_channel} (Max channel distribution at local rank: {self.max_channel_freq})")
             else:
                 print(f"Rank {self.args.rank}: Set object channel to {self.object_channel}")
-        
+
         if self.args.rank > 0:
             # Otherwise model checkpoint will not work in validation
             # Sync values to make model checkpoint correctly.
@@ -299,14 +308,17 @@ class Model(pl.LightningModule):
     def configure_optimizers(self):
         params = list(self.model.parameters())
         params_require_grad = [param for param in params if param.requires_grad]
-        logger.info(f"Number of param tensors: {len(params)}. Number of param tensors (require grad): {len(params_require_grad)}.")
+        logger.info(
+            f"Number of param tensors: {len(params)}. Number of param tensors (require grad): {len(params_require_grad)}.")
         optimizer = torch.optim.__dict__[self.args.optimizer](
             params_require_grad,
             lr=self.args.learning_rate,
             weight_decay=self.hparams.weight_decay
         )
+
         def lr_lambda(epoch): return self.get_lr(
             epoch, base_lr=self.args.learning_rate, **self.args.lr_scheduler_kwargs)
+
         return [optimizer], [torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)]
 
     def on_train_epoch_start(self):
@@ -320,13 +332,13 @@ class Model(pl.LightningModule):
             **self.args.dataset_kwargs, **self.args.train_dataset_kwargs)
         sampler = torch.utils.data.distributed.DistributedSampler(
             train_dataset, shuffle=True) if self.args.multi_gpu else None
-        
+
         if getattr(self.args, 'force_no_shuffle', False):
             assert not self.args.multi_gpu, "force_no_shuffle is for visualization with one GPU"
             shuffle = False
         else:
             shuffle = sampler is None
-        
+
         return torch.utils.data.DataLoader(
             train_dataset,
             batch_size=self.hparams.batch_size,
@@ -344,7 +356,7 @@ class Model(pl.LightningModule):
             transform=dataset.get_transform(self.args, training=False),
             subsample_frame_interval=subsample_frame_interval,
             **self.args.dataset_kwargs, **self.args.test_dataset_kwargs)
-        
+
         return torch.utils.data.DataLoader(
             val_dataset,
             batch_size=self.hparams.batch_size,
@@ -389,7 +401,8 @@ def main():
                         help='path to config', default='configs/rcf/rcf_stage1.yaml')
     parser.add_argument('--test', help='test only',
                         default=False, action="store_true")
-    parser.add_argument('--test-override-pretrained', help='override pretrained model and checkpoints directory at test',
+    parser.add_argument('--test-override-pretrained',
+                        help='override pretrained model and checkpoints directory at test',
                         default=None, type=str)
     parser.add_argument('--test-override-object-channel', help='override object channel at test',
                         default=None, type=int)
@@ -423,12 +436,13 @@ def main():
     # Use config file name as the experiment name
     # exp_name = config_path.split(
     #     "/")[-1][:-5] + "_" + datetime.now().strftime("%y%m%d_%H%M%S")
-    
+
     # Use checkpoints_dir as the experiment name because we may override checkpoints_dir with CLI options
     exp_name = args.checkpoints_dir.split(
         "/")[-1] + "_" + datetime.now().strftime("%y%m%d_%H%M%S")
     wandb_logger = pl.loggers.WandbLogger(
-        project="RCF", mode="disabled" if args.disable_wandb else None, name=exp_name, settings=wandb.Settings(start_method="thread"))
+        project="RCF", mode="disabled" if args.disable_wandb else None, name=exp_name,
+        settings=wandb.Settings(start_method="thread"))
     # save_on_train_epoch_end should be set to True if there is no validation set
     # even on rank non-zero we need to have the monitor key (saving is ignored in Stratrgy class so other code that requires the monitor key will run on rank non-zero)
     checkpoint_callback = ModelCheckpoint(

@@ -235,7 +235,7 @@ class FlowAggregationHeadWithResidual(nn.Module):
 
         return F_pred2_sum_2d
 
-    def aggregate_flow_with_residual(self, mask, flow, all_pred_residual):
+    def aggregate_flow_with_residual(self, mask, flow, all_pred_residual, object_channel):
         # Two ways:
         # mask1 with fw_flow
         # mask2 with bw_flow
@@ -259,87 +259,42 @@ class FlowAggregationHeadWithResidual(nn.Module):
         flow_agg = flow_agg.flatten(3, 4).sum(dim=-1)
         # After `flow_feat_after_agg`: [B, C1=2, C2=5]
         flow_agg = self.flow_feat_after_agg(flow_agg)
-        # After: [B, C1=2, C2=5, 1, 1]
-        flow_agg = flow_agg[..., None, None]
-        # mask[:, None, ...] : [B, 1, C2=5, H, W]
-        # After (flow_agg): [B, C1=2, C2=5, H, W]
-        flow_agg = flow_agg * mask[:, None, ...]
-        # After (sum up the flows): [B, C1=2, H, W]
-        flow_agg = flow_agg.sum(dim=2)
 
-        flow_affine = None
-        if self.free_residual:
-            # Residual without the constraint of residual map
-            # all_pred_residual (before unflatten): [B, 2*5=10, H, W]
-            if self.allow_residual_resize and all_pred_residual.shape[-2:] != self.mask_size:
-                all_pred_residual = F.interpolate(
-                    all_pred_residual, self.mask_size, mode='bilinear')
-            all_pred_residual = all_pred_residual.unflatten(
-                1, (2, self.mask_layer))
-            # mask[:, None, ...]: [B, 1, C2=5, H, W]
-            # all_pred_residual:     [B, 2, C2=5, H, W]
-            # residual_adjustment:   [B, C1=2, H, W]
-            if self.residual_adjustment_scale != -1.:
-                residual_adjustment = (torch.tanh(all_pred_residual / self.pred_div_coeff)
-                                       * mask[:, None, ...]).sum(dim=2) * self.residual_adjustment_scale
-            else:
-                # print("Free residual without a limit")
-                # Dividing by 10 and multiplying by 10 cancels out
-                residual_adjustment = (
-                        all_pred_residual * mask[:, None, ...]).sum(dim=2)
-                # print(residual_adjustment)
-            flow_overall = flow_agg + residual_adjustment
-        elif self.free_residual_with_affine:
-            flow_affine = self.get_demean_affine_flow(mask, flow)
-
-            # Residual without the constraint of residual map
-            # all_pred_residual (before unflatten): [B, 2*5=10, H, W]
-            if self.allow_residual_resize and all_pred_residual.shape[-2:] != self.mask_size:
-                all_pred_residual = F.interpolate(
-                    all_pred_residual, self.mask_size, mode='bilinear')
-            all_pred_residual = all_pred_residual.unflatten(
-                1, (2, self.mask_layer))
-            # mask[:, None, ...]: [B, 1, C2=5, H, W]
-            # all_pred_residual:     [B, 2, C2=5, H, W]
-            # residual_adjustment:   [B, C1=2, H, W]
-            residual_adjustment = (torch.tanh(all_pred_residual / self.pred_div_coeff)
-                                   * mask[:, None, ...]).sum(dim=2) * self.residual_adjustment_scale
-            flow_overall = flow_agg + flow_affine + residual_adjustment
+        # During the blur image generate, we only need the flow in Object_channel
+        if self.residual_adjustment_scale != -1.:
+            residual_adjustment = torch.tanh(all_pred_residual.unflatten(1, (2, self.mask_layer)))[:, :,
+                                  object_channel] / self.pred_div_coeff * self.residual_adjustment_scale
         else:
-            # No residual
-            flow_overall = flow_agg
+            residual_adjustment = all_pred_residual[:, object_channel, ...]
+        return flow_agg[..., object_channel], residual_adjustment
 
-        # Output: [B, C1=2, H, W]
-        return flow_overall, flow_agg, residual_adjustment, flow_affine
-
-    def forward(self, imgs, masks, gt_fw_flows, gt_bw_flows, all_pred_residual_fw, all_pred_residual_bw):
+    def forward(self, imgs, masks, gt_fw_flows, gt_bw_flows, all_pred_residual_fw, all_pred_residual_bw,
+                object_channel=None):
         # masks [B, C=5, H, W]: expected to sum up to 1 across channel dimension (C=5)
         # gt_fw_flows: [B, im_num - 1, C=2, H, W]
         # gt_bw_flows: [B, im_num - 1, C=2, H, W]
 
-        [fw_flow_agg, fw_residual_adjustment, bw_flow_agg, bw_residual_adjustment] = []
         batch_size, im_num, _, im_h, im_w = imgs.shape
-        # im_num = 3 when synthetic blur image
-        for i in range(1, im_num):
-            # Now we match the flow for simplicity.
+        # im_num = 3 when synthetic blur image, i=1 means the middle frame
+        i = 1
 
-            # masks: [B, 2, C=5, H, W]
-            # mask1: [B, C=5, H, W]
-            mask = masks[:, i, :, :, :]
+        # masks: [B, 2, C=5, H, W]
+        # mask1: [B, C=5, H, W]
+        mask = masks[:, i, :, :, :]
 
-            # Same index in fw and bw correspond to same frames (just fw and bw)
-            # index i-1 corresponds to the flow between mask1 and mask2
-            # gt_fw_flow, gt_bw_flow: [B, C=2, H, W]
-            gt_fw_flow = gt_fw_flows[:, i - 1, ...]
-            gt_bw_flow = gt_bw_flows[:, i - 1, ...]
+        # Same index in fw and bw correspond to same frames (just fw and bw)
+        # index i-1 corresponds to the flow between mask1 and mask2
+        # gt_fw_flow, gt_bw_flow: [B, C=2, H, W]
+        gt_fw_flow = gt_fw_flows[:, i - 1, ...]
+        gt_bw_flow = gt_bw_flows[:, i - 1, ...]
 
-            gt_fw_flow = self.norm_and_clamp_flow(gt_fw_flow)
-            gt_bw_flow = self.norm_and_clamp_flow(gt_bw_flow)
+        gt_fw_flow = self.norm_and_clamp_flow(gt_fw_flow)
+        gt_bw_flow = self.norm_and_clamp_flow(gt_bw_flow)
 
-            # fw_flow_overall, bw_flow_overall: [B, C=2, H, W]
-            fw_flow_overall, fw_flow_agg, fw_residual_adjustment, fw_flow_affine = self.aggregate_flow_with_residual(
-                mask, gt_fw_flow, all_pred_residual_fw)
-            bw_flow_overall, bw_flow_agg, bw_residual_adjustment, bw_flow_affine = self.aggregate_flow_with_residual(
-                mask, gt_bw_flow, all_pred_residual_bw)
+        # fw_flow_overall, bw_flow_overall: [B, C=2, H, W]
+        fw_flow_agg_object, fw_residual_adjustment_inner_object = self.aggregate_flow_with_residual(
+            mask, gt_fw_flow, all_pred_residual_fw, object_channel)
+        bw_flow_agg_object, bw_residual_adjustment_inner_object = self.aggregate_flow_with_residual(
+            mask, gt_bw_flow, all_pred_residual_bw, object_channel)
 
-        return fw_flow_agg, fw_residual_adjustment, bw_flow_agg, bw_residual_adjustment
+        return fw_flow_agg_object, fw_residual_adjustment_inner_object, bw_flow_agg_object, bw_residual_adjustment_inner_object

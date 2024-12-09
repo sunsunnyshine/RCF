@@ -89,7 +89,7 @@ class VideoDataset(torch.utils.data.Dataset):
                 images.append(image)
         if not self.training:
             for i in range(self.frame_num + 1):
-                path = current_seq[-1 * (self.frame_num - 1) + frame_ind]
+                path = current_seq[frame_ind - 1 + i]
                 image = self.load_image(path)
                 images.append(image)
 
@@ -97,6 +97,7 @@ class VideoDataset(torch.utils.data.Dataset):
 
         ret = {
             'imgs': images,
+            'origin_img': images[1],
             'seq_ids': seq_ind_within_subset,
             'seq_names': seq_name,
             'frame_ind_start': frame_ind,

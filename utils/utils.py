@@ -113,6 +113,7 @@ def load_config(config_path):
         config (dict): config in dictionary
     """
 
+
     with open(config_path, "r") as f:
         config = yaml.load(f, Loader=UniqueKeyLoader)
 

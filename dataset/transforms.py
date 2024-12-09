@@ -7,6 +7,7 @@ from PIL import Image
 from numpy import random
 from mmcv.image.colorspace import convert_color_factory
 
+
 class Resize(object):
     """Resize images & seg.
 
@@ -52,7 +53,7 @@ class Resize(object):
 
         if ratio_range is not None:
             # mode 1: given a scale and a range of image ratio
-            #assert len(self.img_scale) == 1
+            # assert len(self.img_scale) == 1
             pass
         else:
             # mode 2: given multiple scales or a range of scales
@@ -155,7 +156,7 @@ class Resize(object):
 
         if self.ratio_range is not None:
             scale, scale_idx = self.random_sample_ratio(self.img_scale[0], self.ratio_range)
-            #scale, scale_idx = self.random_sample_ratio(results['img'][0].shape[:2], self.ratio_range)
+            # scale, scale_idx = self.random_sample_ratio(results['img'][0].shape[:2], self.ratio_range)
         elif len(self.img_scale) == 1:
             scale, scale_idx = self.img_scale[0], 0
         elif self.multiscale_mode == 'range':
@@ -169,15 +170,16 @@ class Resize(object):
 
     def _resize_img(self, results):
         """Resize images with ``results['scale']``."""
-        resized_imgs=[]
+        resized_imgs = []
         if self.keep_ratio:
             if results['scale'] == (-1, -1):
                 img = results['img']
             else:
                 for _img in results['img']:
-                    #print("img before _img.shape={}".format(_img.shape))
-                    _img, scale_factor = mmcv.imrescale(_img, results['scale'], return_scale=True, interpolation=self.interpolation)
-                    #print("img _img.shape={}".format(_img.shape))
+                    # print("img before _img.shape={}".format(_img.shape))
+                    _img, scale_factor = mmcv.imrescale(_img, results['scale'], return_scale=True,
+                                                        interpolation=self.interpolation)
+                    # print("img _img.shape={}".format(_img.shape))
                     resized_imgs.append(_img)
             # the w_scale and h_scale has minor difference
             # a real fix should be done in the mmcv.imrescale in the future
@@ -208,14 +210,14 @@ class Resize(object):
                     if results['scale'] == (-1, -1):
                         gt_seg = results[key][i]
                     else:
-                        #print("anno before _img.shape={}".format(results[key][i].shape))
+                        # print("anno before _img.shape={}".format(results[key][i].shape))
                         gt_seg = mmcv.imrescale(
                             results[key][i], results['scale'], interpolation='nearest')
-                        #print("anno _img.shape={}".format(gt_seg.shape))
+                        # print("anno _img.shape={}".format(gt_seg.shape))
                 else:
                     gt_seg = mmcv.imresize(
                         results[key][i], results['scale'], interpolation='nearest')
-                #results['gt_semantic_seg'] = gt_seg
+                # results['gt_semantic_seg'] = gt_seg
                 results[key][i] = gt_seg
 
     def __call__(self, results):
@@ -243,7 +245,6 @@ class Resize(object):
                      f'ratio_range={self.ratio_range}, '
                      f'keep_ratio={self.keep_ratio})')
         return repr_str
-
 
 
 class RandomFlip(object):
@@ -285,7 +286,7 @@ class RandomFlip(object):
             results['flip_direction'] = self.direction
         if results['flip']:
             # flip image
-            #results['img'] = mmcv.imflip(results['img'], direction=results['flip_direction'])
+            # results['img'] = mmcv.imflip(results['img'], direction=results['flip_direction'])
 
             flipped_list = []
             for _img in results['img']:
@@ -299,13 +300,12 @@ class RandomFlip(object):
                 for i in range(len(results[key])):
                     results[key][i] = mmcv.imflip(
                         results[key][i], direction=results['flip_direction']).copy()
-                    if results['flip'] and (key is 'gt_fw_flows' or key is 'gt_bw_flows'):
+                    if results['flip'] and (key == 'gt_fw_flows' or key == 'gt_bw_flows'):
                         results[key][i][..., 0] = -results[key][i][..., 0]
         return results
 
     def __repr__(self):
         return self.__class__.__name__ + f'(flip_ratio={self.flip_ratio})'
-
 
 
 class Pad(object):
@@ -381,7 +381,6 @@ class Pad(object):
         return repr_str
 
 
-
 class Normalize(object):
     """Normalize the image.
 
@@ -414,7 +413,7 @@ class Normalize(object):
             _img = mmcv.imnormalize(_img, self.mean, self.std, self.to_rgb)
             normed_list.append(_img)
         results['img'] = np.asarray(normed_list)
-        #results['img'] = mmcv.imnormalize(results['img'], self.mean, self.std, self.to_rgb)
+        # results['img'] = mmcv.imnormalize(results['img'], self.mean, self.std, self.to_rgb)
         results['img_norm_cfg'] = dict(mean=self.mean, std=self.std, to_rgb=self.to_rgb)
         return results
 
@@ -423,7 +422,6 @@ class Normalize(object):
         repr_str += f'(mean={self.mean}, std={self.std}, to_rgb=' \
                     f'{self.to_rgb})'
         return repr_str
-
 
 
 class RandomCrop(object):
@@ -469,8 +467,7 @@ class RandomCrop(object):
                 updated according to crop size.
         """
 
-        cropped=[]
-
+        cropped = []
 
         for i, img in enumerate(results['img']):
             if img.shape[0] < self.crop_size[0] or img.shape[1] < self.crop_size[1]:
@@ -488,14 +485,14 @@ class RandomCrop(object):
         for img in results['img']:
             assert self.cat_max_ratio == 1.
             # crop the image
-            #print("before img.shape={}".format(img.shape))
+            # print("before img.shape={}".format(img.shape))
             img = self.crop(img, crop_bbox)
-            #if img.shape[-3:-1] != self.crop_size:
+            # if img.shape[-3:-1] != self.crop_size:
             #    print('Warn:', img.shape)
             #    img = img
             #    print('after Warn:', img.shape)
 
-            #print("after img.shape={}".format(img.shape))
+            # print("after img.shape={}".format(img.shape))
             img_shape = img.shape
             cropped.append(img)
 
@@ -511,6 +508,7 @@ class RandomCrop(object):
 
     def __repr__(self):
         return self.__class__.__name__ + f'(crop_size={self.crop_size})'
+
 
 class CenterCrop(RandomCrop):
     def get_crop_bbox(self, img):
@@ -553,8 +551,10 @@ class SegRescale(object):
     def __repr__(self):
         return self.__class__.__name__ + f'(scale_factor={self.scale_factor})'
 
+
 rgb2hsv = convert_color_factory('rgb', 'hsv')
 hsv2rgb = convert_color_factory('hsv', 'rgb')
+
 
 class PhotoMetricDistortion(object):
     """Apply photometric distortion to image sequentially, every transformation
@@ -627,14 +627,14 @@ class PhotoMetricDistortion(object):
             alpha = random.uniform(self.saturation_lower,
                                    self.saturation_upper)
             img = [self.saturation_one_img(img_item, alpha) for img_item in img]
-            
+
         return img
 
     def hue_one_img(self, img, delta):
         img = rgb2hsv(img)
         img[:, :, 0] = (img[:, :, 0].astype(int) + delta) % 180
         img = hsv2rgb(img)
-        
+
         return img
 
     def hue(self, img):
@@ -642,7 +642,7 @@ class PhotoMetricDistortion(object):
         if random.randint(2):
             delta = random.uniform(-self.hue_delta, self.hue_delta)
             img = [self.hue_one_img(img_item, delta) for img_item in img]
-        
+
         return img
 
     def __call__(self, results):
@@ -697,6 +697,7 @@ class PhotoMetricDistortion(object):
                      f'{self.saturation_upper}), '
                      f'hue_delta={self.hue_delta})')
         return repr_str
+
 
 class Collect(object):
     """Collect data from the loader relevant to the specific task.
@@ -766,7 +767,8 @@ class Collect(object):
 
     def __repr__(self):
         return self.__class__.__name__ + \
-               f'(keys={self.keys}, meta_keys={self.meta_keys})'
+            f'(keys={self.keys}, meta_keys={self.meta_keys})'
+
 
 def load_pipeline_item(item):
     # Note that this changes the item
@@ -776,6 +778,7 @@ def load_pipeline_item(item):
         item['type'] = item_type
         return item_obj
     return item
+
 
 # This is for a list of items
 class ApplyIndividually(object):
@@ -788,7 +791,9 @@ class ApplyIndividually(object):
     def __repr__(self):
         return f"{self.__class__.__name__}(transform={self.transform})"
 
+
 from torchvision import transforms
+
 
 class NumpyToTensor(object):
     def __init__(self, keys):
@@ -798,15 +803,21 @@ class NumpyToTensor(object):
     def __call__(self, data):
         # It's 3 dimensional because we apply this in each image.
         for key in self.keys:
-            for key_idx in range(len(data[key])):
-                data[key][key_idx] = torch.tensor(
-                    data[key][key_idx].transpose(2, 0, 1).astype(np.float32) / 255.
+            # 如果是列表，则列表中的所有元素处理；如果是元素，直接处理
+            if isinstance(data[key], list):
+                for key_idx in range(len(data[key])):
+                    data[key][key_idx] = torch.tensor(
+                        data[key][key_idx].transpose(2, 0, 1).astype(np.float32) / 255.
+                    )
+            else:
+                data[key] = torch.tensor(
+                    data[key].transpose(2, 0, 1).astype(np.float32) / 255.
                 )
-
         return data
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(keys={self.keys})"
+
 
 class AnnotationTransform(object):
     def __call__(self, data):
@@ -817,6 +828,7 @@ class AnnotationTransform(object):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}()"
+
 
 class AttnTransform(object):
     def __call__(self, data):
@@ -830,12 +842,13 @@ class AttnTransform(object):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}()"
 
+
 class FlowTransform(object):
     def __init__(self, flow_fields, scale_flow=False):
         super().__init__()
         self.flow_fields = flow_fields
         self.scale_flow = scale_flow
-    
+
     def __call__(self, data):
         # data with key: numpy array with dimension (480, 854, 2)
         # We do not need to divide by 255 in the flow.
@@ -855,6 +868,7 @@ class FlowTransform(object):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(flow_fields={self.flow_fields})"
 
+
 class TorchNormalize(object):
     # From transforms.Normalize
     def __init__(self, mean, std, inplace=False):
@@ -871,6 +885,7 @@ class TorchNormalize(object):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(mean={self.mean}, std={self.std})"
 
+
 class PLTransform(object):
     def __init__(self):
         super().__init__()
@@ -879,15 +894,17 @@ class PLTransform(object):
         for idx in range(len(data['pl_masks'])):
             data['pl_masks'][idx] = torch.tensor(data['pl_masks'][idx]) / 255.
         return data
-    
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(mean={self.mean}, std={self.std})"
+
 
 class Transform(object):
     """
     This is the transform used by v1 and v2 (v2.1).
     Training and evaluation have different shape (training is rectangular).
     """
+
     def __init__(self, training, strong_aug=False, has_flow=True, has_attn=False, has_pl=False, scale_flow=True):
         # v1 by default uses weak_aug
         self.training = training
@@ -899,24 +916,26 @@ class Transform(object):
                 Resize(img_scale=(9999, 675), ratio_range=(0.80, 1.0)),
                 RandomCrop(crop_size=(540, 960), cat_max_ratio=1.0),
                 *([
-                    RandomFlip(flip_ratio=0.5, direction='horizontal'),
-                    PhotoMetricDistortion()
-                ] if strong_aug else []),
+                      RandomFlip(flip_ratio=0.5, direction='horizontal'),
+                      PhotoMetricDistortion()
+                  ] if strong_aug else []),
                 *([FlowTransform(['gt_fw_flows', 'gt_bw_flows'], scale_flow=scale_flow)] if has_flow else []),
                 *([PLTransform()] if has_pl else []),
-                NumpyToTensor(['img']),
+                NumpyToTensor(['img', 'origin_img']),
                 TorchNormalize(**normalize_kwargs)
             ])
         else:
             self.group_transform = transforms.Compose([
                 Resize(img_scale=(9999, 675), ratio_range=(0.80, 0.80)),
                 AnnotationTransform(),
-                NumpyToTensor(['img']),
+                *([FlowTransform(['gt_fw_flows', 'gt_bw_flows'], scale_flow=scale_flow)] if has_flow else []),
+                NumpyToTensor(['img','origin_img']),
                 TorchNormalize(**normalize_kwargs)
             ])
-        
+
     def __call__(self, data):
         data['img'] = [np.asarray(item) for item in data['imgs']]
+        data['origin_img'] = np.asarray(data['origin_img'])
         # Resize and RandomCrop uses img
         data = self.group_transform(data)
         data['imgs'] = data.pop('img')
@@ -928,10 +947,12 @@ class Transform(object):
     def __repr__(self):
         return str(self.group_transform)
 
+
 def get_transform(args, training):
     transform_kwargs = args.train_transform_kwargs if training else args.test_transform_kwargs
     transform_cls = getattr(args, "transform_cls", "Transform")
     return globals()[transform_cls](training=training, **transform_kwargs)
+
 
 if __name__ == "__main__":
     transform = get_transform(training=True)
