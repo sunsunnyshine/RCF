@@ -261,11 +261,11 @@ class FlowAggregationHeadWithResidual(nn.Module):
         flow_agg = self.flow_feat_after_agg(flow_agg)
 
         # During the blur image generate, we only need the flow in Object_channel
-        if self.residual_adjustment_scale != -1.:
-            residual_adjustment = torch.tanh(all_pred_residual.unflatten(1, (2, self.mask_layer)))[:, :,
-                                  object_channel] / self.pred_div_coeff * self.residual_adjustment_scale
-        else:
-            residual_adjustment = all_pred_residual[:, object_channel, ...]
+        all_pred_residual = F.interpolate(all_pred_residual, self.mask_size, mode='bilinear')
+        residual_adjustment = (torch.tanh(
+            all_pred_residual.unflatten(1, (2, self.mask_layer)) / self.pred_div_coeff) * mask[:, None, ...]).sum(
+            dim=2) * self.residual_adjustment_scale
+
         return flow_agg[..., object_channel], residual_adjustment
 
     def forward(self, imgs, masks, gt_fw_flows, gt_bw_flows, all_pred_residual_fw, all_pred_residual_bw,

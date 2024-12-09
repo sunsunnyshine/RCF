@@ -314,6 +314,16 @@ class RCFModel(nn.Module):
             except Exception as e:
                 logger.warn(f"Error in saving: {fn_name} {e}")
 
+    def get_norm_flow_one(self,lis1):
+        """Get normalized flow"""
+        # lis1 and lis2: [B, C=2, 48, 48]
+
+        flow = lis1
+        _, _, _h, _w = flow.shape
+        flow = torch.cat(
+            [flow[:, 0:1] / (_h / 2.0), flow[:, 1:2] / (_w / 2.0)], 1)
+        return flow
+
     def forward_eval(self, imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, gts,origin_img,
                      object_channel=None,
                      return_pred_vis_list=False):
@@ -365,7 +375,7 @@ class RCFModel(nn.Module):
         # step 4: save the blurred image and the residual flow
         self.export_reblur_result(blur_image_objectsharp, paths, seq_ids, seq_names, subdir='sharp')
         self.export_reblur_result(blur_image_objectblur, paths, seq_ids, seq_names, subdir='blur')
-        self.export_reblur_result(self.let_tensor_vis(fw_residual_adjustment_inner_object)/255.0, paths, seq_ids, seq_names, subdir='fw_residual')
+        self.export_reblur_result(self.let_tensor_vis(self.get_norm_flow_one(fw_residual_adjustment_inner_object))/255.0, paths, seq_ids, seq_names, subdir='fw_residual_visualization')
 
         ith_img = imgs[:, 0, :, :, :]
         ith_img = ith_img.detach()
