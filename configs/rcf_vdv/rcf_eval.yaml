@@ -6,11 +6,11 @@ disable_wandb: true
 # This is to allow existing saved dir
 allow_overwriting_checkpoints_dir: true
 
-data_path: ./data/data_vdv
+data_path: ./data/data_vdv2
 
-checkpoints_dir: saved/saved_rcf_stage1
-pretrained_model: saved/saved_rcf_stage1/epoch=22-step=13225.ckpt
-object_channel: 0
+checkpoints_dir: saved/saved_rcf_vdv2_synetic
+pretrained_model: saved/saved_rcf_vdv2_stage1/?
+object_channel: ?
 
 # generate the blurred image is different from the simply test
 test_dataset_kwargs:
