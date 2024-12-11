@@ -9,8 +9,8 @@ allow_overwriting_checkpoints_dir: true
 data_path: ./data/data_vdv2
 
 checkpoints_dir: saved/saved_rcf_vdv2_synetic
-pretrained_model: saved/saved_rcf_vdv2_stage1/?
-object_channel: ?
+pretrained_model: saved/saved_rcf_vdv2_stage1_num3/epoch=12-step=5824.ckpt
+object_channel: 2
 
 # generate the blurred image is different from the simply test
 test_dataset_kwargs:
