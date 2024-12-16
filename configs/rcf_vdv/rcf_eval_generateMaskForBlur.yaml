@@ -1,4 +1,4 @@
-base_config: rcf_stage1.yaml
+base_config: rcf_stage1_nums3.yaml
 batch_size: 12
 workers: 6
 
@@ -14,9 +14,9 @@ test_dataset_kwargs:
   split: val.txt
   zero_ann: true
 
-checkpoints_dir: saved/saved_vdv_blur_mask
-pretrained_model: saved/saved_rcf_vdv1_stage1_synetic/epoch=22-step=13225.ckpt
-object_channel: 0
+checkpoints_dir: saved/saved_vdv2_blur_mask
+pretrained_model: saved/saved_rcf_vdv2_stage1_num3/epoch=12-step=5824.ckpt
+object_channel: 2
 
 # In validation, it's save_eval
 saved_eval_dir_name: saved_eval_test
