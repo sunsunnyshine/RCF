@@ -1,0 +1,29 @@
+base_config: rcf_stage1.yaml
+batch_size: 12
+workers: 6
+
+disable_wandb: true
+# This is to allow existing saved dir
+allow_overwriting_checkpoints_dir: true
+
+data_path: ./data/VDV
+
+test_dataset_kwargs:
+  frame_num: 1
+  load_flow: false
+  split: val.txt
+  zero_ann: true
+
+checkpoints_dir: saved/saved_vdv_blur_mask
+pretrained_model: saved/saved_rcf_vdv1_stage1_synetic/epoch=22-step=13225.ckpt
+object_channel: 0
+
+# In validation, it's save_eval
+saved_eval_dir_name: saved_eval_test
+saved_eval_export_dir_name: saved_eval_export
+
+eval_pos_th: -1
+eval_save: true
+# export depends on save
+eval_export: true
+export_all_seg: false

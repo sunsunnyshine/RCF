@@ -199,97 +199,10 @@ class Model(pl.LightningModule):
     @rank_zero_only
     def test_step(self, batch, batch_idx, always_use_max_iou_channel=False):
         x = batch
-        pred_masks_current_batch = self.forward(x)
-        assert len(pred_masks_current_batch) == len(
-            batch['ann']), f"{len(pred_masks_current_batch)} != {len(batch['ann'])}"
-        pred_masks_current_batch_resize = utils.eval_utils._resize(
-            pred_masks_current_batch, batch['ann'].shape[1:3])
-        # -1 means use hard max (turn masks into one hot)
-        num_channels = pred_masks_current_batch_resize.shape[1]
-        if self.args.eval_pos_th != -1:
-            pred_masks_current_batch_resize = (
-                pred_masks_current_batch_resize > self.args.eval_pos_th).long().cpu().numpy()
-        else:
-            pred_masks_current_batch_resize_max_idx = pred_masks_current_batch_resize.argmax(
-                dim=1)
-            pred_masks_current_batch_resize = F.one_hot(
-                pred_masks_current_batch_resize_max_idx,
-                num_classes=num_channels
-            ).permute((0, 3, 1, 2)).long().cpu().numpy()
-
-        ignore_locations = batch['ann'] == 128
-        anns_np = (batch['ann'] / 255).long()
-        anns_np[ignore_locations] = -1
-        anns_np = anns_np.cpu().numpy()
-        for pred_mask_resize, ann, seq_name in zip(pred_masks_current_batch_resize, anns_np, batch['seq_names']):
-            # pred_mask_resize and ann are numpy array
-            # index 1 selects the iou in the foreground
-            if always_use_max_iou_channel or (self.object_channel is None):
-                frame_ious = [
-                    utils.iou(pred_mask_resize_item, ann, num_classes=2, ignore_index=-1)[1] for pred_mask_resize_item in pred_mask_resize]
-                max_channel = np.argmax(frame_ious)
-                self.max_channel_freq[max_channel] += 1
-                frame_iou = frame_ious[max_channel]
-            else:
-                frame_iou = utils.iou(
-                    pred_mask_resize[self.object_channel], ann, num_classes=2, ignore_index=-1)[1]
-            iou_current_sequence = self.iou_all_sequences.setdefault(
-                seq_name, [])
-            iou_current_sequence.append(frame_iou)
+        self.forward(x)
 
     def test_epoch_end(self, outputs, name="test_miou", display_all=True):
-        if (self.object_channel is None) and (not self.trainer.sanity_checking) and ((self.current_epoch >= getattr(self.args, "set_object_channel_after_epoch", 1) - 1) or self.trainer.testing):
-            # Set object channel only once (if `always_use_max_iou_channel` is set, object channel will be ignored, otherwise this will always be used)
-            if self.args.rank >= 0: # Distributed
-                if self.args.rank == 0:
-                    object_channel_current_rank = np.argmax(self.max_channel_freq)
-                else:
-                    object_channel_current_rank = 0
-
-                object_channel = torch.tensor([object_channel_current_rank], device="cuda")
-                dist.all_reduce(object_channel, op=dist.ReduceOp.SUM)
-                object_channel = object_channel.item()
-            else:
-                object_channel = np.argmax(self.max_channel_freq)
-
-            self.object_channel = object_channel
-            self.args.object_channel = self.object_channel
-            if self.args.rank <= 0:
-                print(f"Rank {self.args.rank}: Set object channel to {self.object_channel} (Max channel distribution at local rank: {self.max_channel_freq})")
-            else:
-                print(f"Rank {self.args.rank}: Set object channel to {self.object_channel}")
-        
-        if self.args.rank > 0:
-            # Otherwise model checkpoint will not work in validation
-            # Sync values to make model checkpoint correctly.
-            self.log(name, 0., sync_dist=True, reduce_fx="sum")
-            self.log(name + "_frame_avg", 0., sync_dist=True, reduce_fx="sum")
-            return
-
-        miou_each_sequence = {}
-        iou_sum = 0.
-        iou_num_frames = 0.
-        for seq_name, miou_current_sequence in self.iou_all_sequences.items():
-            miou = np.nanmean(miou_current_sequence).astype(np.float32)
-            miou_each_sequence[seq_name] = miou
-
-            iou_sum += np.sum(miou_current_sequence).astype(np.float32)
-            iou_num_frames += len(miou_current_sequence)
-
-            if display_all:
-                logger.info(f"{name}_{seq_name}: {miou * 100.:.2f}")
-            # This is only computed and logged on rank 0, so do not sync.
-            self.log(f'{name}_{seq_name}', miou, sync_dist=False)
-
-        # We should not get NaN here unless some videos are empty or have all NaNs
-        mean_miou_all_sequences = np.mean(list(miou_each_sequence.values())).astype(np.float32)
-
-        logger.info(f"{name}: {mean_miou_all_sequences * 100.:.2f}")
-        self.log(name, mean_miou_all_sequences, sync_dist=True, reduce_fx="sum")
-
-        miou_frame_avg = iou_sum / iou_num_frames
-        logger.info(f"{name}_frame_avg: {miou_frame_avg * 100.:.2f}")
-        self.log(name + "_frame_avg", miou_frame_avg, sync_dist=True, reduce_fx="sum")
+        pass
 
     def get_lr(self, epoch, power, base_lr, min_lr):
         coeff = (1 - epoch / self.args.epochs) ** power

@@ -288,36 +288,9 @@ class RCFModel(nn.Module):
             batch_size, im_num, self.mask_layer, _feat_h, _feat_w)
         all_pred_mask = F.softmax(all_pred_mask, dim=2)
 
-        ith_img = imgs[:, 0, :, :, :]
-        ith_img = ith_img.detach()
-        toH, toW = all_pred_mask.shape[-2:]
-        ith_img_resize = self.resize(ith_img, (toH * 2, toW * 2))
-        ith_img_resize = (ith_img_resize + 2.0) / 4.0
+        self.export_seg(F.interpolate(all_pred_mask[:,:,self.args.object_channel,...], size=(1080, 1920), mode='bilinear', align_corners=False), paths, seq_ids, seq_names, name='pred_seg',
+                        train_iter=self.train_iter)
 
-        # Export all masks
-        pred_masks = all_pred_mask[:, 0, :, :, :]
-        pred_vis_list = []
-
-        for _i_ in range(min(self.mask_layer, pred_masks.shape[1])):
-            _pred_mask_resize = self.resize(
-                pred_masks[:, _i_:_i_+1, :, :], (toH * 2, toW * 2)).repeat(1, 3, 1, 1)
-            pred_vis_list.append(_pred_mask_resize)
-        tosave = torch.cat([ith_img_resize] + pred_vis_list, 2)
-
-        if self.args.eval_save:
-            self.save_eval_visualizations(tosave, paths, seq_ids, seq_names, train_iter=self.train_iter)
-            if self.args.eval_export:
-                # Note that saved images are resized to 2x (for visualization and here we did not change the resize)
-                if getattr(self.args, "export_all_seg", False):
-                    # Export all channels
-                    self.export_all_seg(pred_vis_list, paths, seq_ids, seq_names, name='pred_seg', train_iter=self.train_iter)
-                else: # Export object channel only
-                    self.export_seg(pred_vis_list[self.args.object_channel], paths, seq_ids, seq_names, name='pred_seg', train_iter=self.train_iter)
-
-        if return_pred_vis_list:
-            return pred_masks, pred_vis_list
-
-        return pred_masks
 
     def pred_separate_residual(self, feats, batch_size, im_num):
         # separate residual has different input compared to joint residual to make passing features with multiple resolutions easier
