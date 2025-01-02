@@ -20,6 +20,7 @@ from .crf_head import CRFHead
 from tools.localBlur.generateBlur import generateBlurFlow
 from tools.localBlur.blur import create_lookup_table
 from copy import deepcopy
+from utils.frame_utils import writeFlow
 
 logger = utils.get_logger()
 
@@ -314,6 +315,21 @@ class RCFModel(nn.Module):
             except Exception as e:
                 logger.warn(f"Error in saving: {fn_name} {e}")
 
+    @rank_zero_only
+    def export_inner_flow_result(self, tosave, paths, seq_ids, seq_names, name='reblur', subdir=''):
+        # tosave: [B, 2, mask_H, mask_W]
+        if subdir:
+            subdir += '/'
+            if not os.path.exists(f'{self.saved_reblur_dir_name}/{subdir}'):
+                os.makedirs(f'{self.saved_reblur_dir_name}/{subdir}')
+        for idx_in_batch, (path, seq_name, seq_id) in enumerate(zip(paths[0], seq_names, seq_ids)):
+            img_frame_id = path.split('/')[-1][:-4]
+            fn_name = f'{self.saved_reblur_dir_name}/{subdir}{name}_{seq_name}_{img_frame_id}.flo'
+            try:
+                writeFlow(fn_name, tosave.squeeze(0).permute(1, 2, 0).cpu().numpy())
+            except Exception as e:
+                logger.warn(f"Error in saving: {fn_name} {e}")
+
     def get_norm_flow_one(self,lis1):
         """Get normalized flow"""
         # lis1 and lis2: [B, C=2, 48, 48]
@@ -324,7 +340,7 @@ class RCFModel(nn.Module):
             [flow[:, 0:1] / (_h / 2.0), flow[:, 1:2] / (_w / 2.0)], 1)
         return flow
 
-    def forward_eval(self, imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, gts,origin_img,
+    def forward_eval(self, imgs, seq_ids, seq_names, paths, gt_fw_flows, gt_bw_flows, gts, origin_img,
                      object_channel=None,
                      return_pred_vis_list=False):
         # Typically: _h: 540, _w: 960
@@ -375,8 +391,15 @@ class RCFModel(nn.Module):
         # step 4: save the blurred image and the residual flow
         self.export_reblur_result(blur_image_objectsharp, paths, seq_ids, seq_names, subdir='sharp')
         self.export_reblur_result(blur_image_objectblur, paths, seq_ids, seq_names, subdir='blur')
-        self.export_reblur_result(self.let_tensor_vis(self.get_norm_flow_one(fw_residual_adjustment_inner_object))/255.0, paths, seq_ids, seq_names, subdir='fw_residual_visualization')
 
+        # step 5：save the inner flow
+        # self.export_reblur_result(self.let_tensor_vis(self.get_norm_flow_one(bw_residual_adjustment_inner_object))/255.0, paths, seq_ids, seq_names, subdir='bw_residual_visualization')
+        # self.export_inner_flow_result(bw_residual_adjustment_inner_object, paths, seq_ids, seq_names, subdir='bw_residual')
+        # self.export_reblur_result(
+        #     self.let_tensor_vis(self.get_norm_flow_one(bw_residual_adjustment_inner_object)) / 255.0, paths, seq_ids,
+        #     seq_names, subdir='fw_residual_visualization')
+        # self.export_inner_flow_result(bw_residual_adjustment_inner_object, paths, seq_ids, seq_names,
+        #                               subdir='fw_residual')
         ith_img = imgs[:, 0, :, :, :]
         ith_img = ith_img.detach()
         toH, toW = all_pred_mask.shape[-2:]
