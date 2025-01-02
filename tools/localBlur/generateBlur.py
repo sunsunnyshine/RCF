@@ -20,7 +20,7 @@ def generateBlurFlow(gt_fw_flows, gt_bw_flows, fw_flow_agg, fw_residual_adjustme
     fw_flow_sharp = torch.mul(gt_fw_flows - fw_flow_agg[..., None, None],
                               (1 - gt[:, None, ...]))
     bw_flow_sharp = torch.mul(gt_bw_flows - bw_flow_agg[..., None, None],
-                              (1 - gt[:, None, ...])) + torch.mul(bw_residual_adjustment, gt[:, None, ...])
+                              (1 - gt[:, None, ...]))
     # 背景模糊，前景局部模糊
     fw_flow_blur = fw_flow_sharp + torch.mul(fw_residual_adjustment, gt[:, None, ...])
     bw_flow_blur = bw_flow_sharp + torch.mul(bw_residual_adjustment, gt[:, None, ...])
