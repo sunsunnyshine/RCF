@@ -30,10 +30,16 @@ def prepare_kernels(u_forward, v_forward, lookup_table, flow_range=16):
     return kernels
 
 
-def blur_image_with_unfold(image, flow_forward, flow_backward, lookup_table, flow_range=16):
+def blur_image_with_unfold(image, flow_forward, flow_backward, lookup_table, kernel_visualization, flow_range=16):
+    H = flow_forward.shape[2]
+    W = flow_forward.shape[3]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     with torch.no_grad():
         kernels = prepare_kernels(flow_forward, flow_backward, lookup_table, flow_range)
+        if False:
+            for i in range(10, min(H , 200), 20):
+                for j in range(10, min(W , 200), 20):
+                    kernel_visualization[0, i - 10: i + 10, j - 10:j + 10] = kernels[i, j, 40:60, 40:60] * 255
 
         blurred_image = torch.zeros((image.shape[0], image.shape[1], flow_forward.shape[-2], flow_forward.shape[-1]),
                                     device=device, dtype=torch.float32)
@@ -59,16 +65,19 @@ def process_large_image(image, flow_forward, flow_backward, lookup_table, flow_r
     # Pad the image with kernel size (tensor)
     image = F.pad(image.to(torch.float32), (flow_range, flow_range, flow_range, flow_range), mode='reflect')
 
+    # visualize the kernel
+    kernel_visualize = torch.zeros(1, 1080, 1920)
     for y in range(0, H, tile_size):
         for x in range(0, W, tile_size):
             tile = image[:, :, y:y + 2 * flow_range + tile_size, x:x + 2 * flow_range + tile_size]
             tile_blurred = blur_image_with_unfold(tile, flow_forward[..., y:y + tile_size, x:x + tile_size],
                                                   flow_backward[..., y:y + tile_size, x:x + tile_size], lookup_table,
-                                                  flow_range)
-            blurred_image[..., y:y + tile_size, x:x + tile_size] = tile_blurred
+                                                  kernel_visualize[..., y:y + tile_size, x:x + tile_size],
+                                                  flow_range
+                                                  )
 
     # return tensor (B,C,H,W)
-    return blurred_image
+    return kernel_visualize
 
 
 if __name__ == "__main__":
