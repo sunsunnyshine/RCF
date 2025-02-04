@@ -1,10 +1,10 @@
 batch_size: 8
-epochs: 8
+epochs: 300
 learning_rate: 1.e-4
 optimizer: Adam
 weight_decay: 1.e-6
 
-workers: 16
+workers: 12
 
 checkpoints_dir: saved/saved_amd
 
@@ -18,7 +18,7 @@ eval_export: false
 export_all_seg: false
 
 disable_wandb: true
-allow_overwriting_checkpoints_dir: false
+allow_overwriting_checkpoints_dir: true
 
 train_transform_kwargs:
   strong_aug: false
@@ -34,12 +34,12 @@ object_channel: null
 
 dataset_kwargs: {}
 
-data_path: ./data/youtube-vos
-test_data_path: ./data/data_davis
+data_path: ./data/data_vdv
+test_data_path: ./data/data_vdv
 
 train_dataset_kwargs:
   frame_num: 2
-  split: ytb2019_train.txt
+  split: trainval.txt
 
 test_dataset_kwargs:
   frame_num: 1

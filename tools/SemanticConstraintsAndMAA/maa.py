@@ -16,6 +16,7 @@ from models.dino_vit import get_dino_model
 
 device = "cuda"
 
+
 def soft_ncut_value(feats, mask, tau, eps):
     feats = feats[0, 1:, :]
     feats = F.normalize(feats, p=2)
@@ -28,9 +29,9 @@ def soft_ncut_value(feats, mask, tau, eps):
     x = mask.view((-1,)).float()
 
     # A: x, B: 1-x
-    cutAB = (1-x) @ (A @ x)
+    cutAB = (1 - x) @ (A @ x)
     assocAV = torch.sum(A @ x)
-    assocBV = torch.sum(A @ (1-x))
+    assocBV = torch.sum(A @ (1 - x))
     NCut = cutAB / assocAV + cutAB / assocBV
 
     return NCut
@@ -38,14 +39,15 @@ def soft_ncut_value(feats, mask, tau, eps):
 
 class NCutEvalHead(nn.Module):
     def __init__(self, args, resize_imgs_size=(480, 856), resize_masks_size=(480, 854),
-                 arch="vit_small", patch_size=8, which_features="k", tau=0.2, eps=1e-5, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
+                 arch="vit_small", patch_size=8, which_features="k", tau=0.2, eps=1e-5, mean=(0.485, 0.456, 0.406),
+                 std=(0.229, 0.224, 0.225)):
         super().__init__()
         self.args = args
 
         self.mean = torch.tensor(mean, dtype=torch.float, device="cuda")[
-            None, :, None, None]
+                    None, :, None, None]
         self.std = torch.tensor(std, dtype=torch.float, device="cuda")[
-            None, :, None, None]
+                   None, :, None, None]
 
         self.resize_imgs_size = resize_imgs_size
         self.resize_masks_size = resize_masks_size
@@ -70,6 +72,7 @@ class NCutEvalHead(nn.Module):
 
         def hook_fn_forward_qkv(module, input, output):
             self.feat_out["qkv"] = output
+
         self.model._modules["blocks"][-1]._modules["attn"]._modules["qkv"].register_forward_hook(
             hook_fn_forward_qkv)
 
@@ -105,17 +108,17 @@ class NCutEvalHead(nn.Module):
         if self.which_features == "k":
             k = qkv[1]
             k = k.transpose(1, 2).reshape(nb_im, nb_tokens, -1)
-            #feats = k[:, 1:, :]
+            # feats = k[:, 1:, :]
             feats = k
         elif self.which_features == "q":
             q = qkv[0]
             q = q.transpose(1, 2).reshape(nb_im, nb_tokens, -1)
-            #feats = q[:, 1:, :]
+            # feats = q[:, 1:, :]
             feats = q
         elif self.which_features == "v":
             v = qkv[2]
             v = v.transpose(1, 2).reshape(nb_im, nb_tokens, -1)
-            #feats = v[:, 1:, :]
+            # feats = v[:, 1:, :]
             feats = v
 
         return feats
@@ -182,7 +185,7 @@ def get_image(seq_name, frame_name):
     # img = TF.resize(img, img_size, interpolation=transforms.InterpolationMode.BICUBIC)
     img = np.asarray(img).astype(np.float32) / 255.
 
-    assert img.shape == (480, 854, 3)
+    # assert img.shape == (480, 854, 3)
 
     return img
 
@@ -190,7 +193,7 @@ def get_image(seq_name, frame_name):
 def visualize_masks(masks):
     plt.figure(figsize=(18, 8))
     for i, mask in enumerate(masks):
-        plt.subplot(1, num_channels, i+1)
+        plt.subplot(1, num_channels, i + 1)
         plt.imshow(mask, vmin=0., vmax=1., cmap="gray")
         plt.axis("off")
     plt.tight_layout()
@@ -199,11 +202,11 @@ def visualize_masks(masks):
 
 def visualize_image_masks(image, masks):
     plt.figure(figsize=(18, 8))
-    plt.subplot(1, num_channels+1, 1)
+    plt.subplot(1, num_channels + 1, 1)
     plt.imshow(image)
     plt.axis("off")
     for i, mask in enumerate(masks):
-        plt.subplot(1, num_channels+1, i+2)
+        plt.subplot(1, num_channels + 1, i + 2)
         plt.imshow(mask, vmin=0., vmax=1., cmap="gray")
         plt.axis("off")
     plt.tight_layout()
@@ -286,8 +289,9 @@ if __name__ == "__main__":
     parser.add_argument('--object-channel', default=None, type=int,
                         help='object channel, if not supplied, perform MAA on all object channels and select the one with best MAA')
     parser.add_argument('--dataset', type=str, help='dataset', default="davis",
-                        choices=["davis", "stv2", "fbms59"])
-    parser.add_argument('--step', type=int, default=0, help='The step of the export masks (should be 0 if exported with evaluation config)')
+                        choices=["davis", "stv2", "fbms59","vdv"])
+    parser.add_argument('--step', type=int, default=0,
+                        help='The step of the export masks (should be 0 if exported with evaluation config)')
 
     args = parser.parse_args()
 
@@ -320,8 +324,10 @@ if __name__ == "__main__":
         data_root = f"{data_dir}/data_davis"
         images_dir = f"{data_root}/JPEGImages/480p"
 
-        val_seqs = ['blackswan', 'bmx-trees', 'breakdance', 'camel', 'car-roundabout', 'car-shadow', 'cows', 'dance-twirl', 'dog', 'drift-chicane',
-                    'drift-straight', 'goat', 'horsejump-high', 'kite-surf', 'libby', 'motocross-jump', 'paragliding-launch', 'parkour', 'scooter-black', 'soapbox']
+        val_seqs = ['blackswan', 'bmx-trees', 'breakdance', 'camel', 'car-roundabout', 'car-shadow', 'cows',
+                    'dance-twirl', 'dog', 'drift-chicane',
+                    'drift-straight', 'goat', 'horsejump-high', 'kite-surf', 'libby', 'motocross-jump',
+                    'paragliding-launch', 'parkour', 'scooter-black', 'soapbox']
 
     elif dataset == "stv2":
         data_root = f'{data_dir}/data_SegTrackv2_resized'
@@ -355,6 +361,13 @@ if __name__ == "__main__":
                     'people03', 'people1', 'people2', 'rabbits02', 'rabbits03', 'rabbits04', 'tennis']
         images_dir = f"{data_root}/JPEGImages"
 
+    elif dataset == "vdv":
+        # This is FBMS59_resized.
+        data_root = f"{data_dir}/data_vdv"
+        # Validation sequences
+        val_seqs = ["scene" + str(i) for i in range(1, 20)]
+        images_dir = f"{data_root}/JPEGImages"
+
     gt_dir = images_dir.replace('JPEGImages', 'Annotations')
 
     seqs = sorted(os.listdir(images_dir))
@@ -369,7 +382,6 @@ if __name__ == "__main__":
 
     allow_skipping_gt = dataset == "fbms59"
     umi_th = 10000 if dataset == "fbms59" else None
-
 
     if object_channel is None:
         object_channel_options = list(range(num_channels))
@@ -398,5 +410,5 @@ if __name__ == "__main__":
         best_object_channel = int(np.argmax(np.array(frame_maas)))
         print(
             f"The best object channel among all channels evaluated is channel {best_object_channel}")
-        
+
         sys.exit(best_object_channel)

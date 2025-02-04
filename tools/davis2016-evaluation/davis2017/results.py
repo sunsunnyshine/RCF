@@ -34,6 +34,19 @@ class Results(object):
                              "folder.\nThe indexes have to match with the initial frame.\n")
             sys.stderr.write("IOError: " + err.strerror + "\n")
             sys.exit()
+    def _read_mask_deva(self,sequence, frame_id):
+        try:
+            mask_path = os.path.join(self.root_dir, f'{sequence}/{frame_id}.png')
+            arr = np.array(Image.open(mask_path).resize(size=(1280, 720), resample=Image.BILINEAR))
+            if arr.ndim == 3:
+                arr = arr[..., 0]
+            return arr
+        except IOError as err:
+            sys.stdout.write(sequence + " frame %s not found!\n" % frame_id)
+            sys.stdout.write("The frames have to be indexed PNG files placed inside the corespondent sequence "
+                             "folder.\nThe indexes have to match with the initial frame.\n")
+            sys.stderr.write("IOError: " + err.strerror + "\n")
+            sys.exit()
 
     def read_masks(self, sequence, masks_id):
         mask_0 = self._read_mask(sequence, masks_id[0])

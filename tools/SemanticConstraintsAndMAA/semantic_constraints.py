@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 from glob import glob
-
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -30,9 +30,9 @@ def soft_ncut_value(feats, mask, tau, eps):
     x = mask.view((-1,)).float()
 
     # A: x, B: 1-x
-    cutAB = (1-x) @ (A @ x)
+    cutAB = (1 - x) @ (A @ x)
     assocAV = torch.sum(A @ x)
-    assocBV = torch.sum(A @ (1-x))
+    assocBV = torch.sum(A @ (1 - x))
     NCut = cutAB / assocAV + cutAB / assocBV
 
     return NCut
@@ -65,7 +65,7 @@ def ncut_refine(feats, masks, tau=0.2, eps=1e-5, steps=10, learning_rate=1e-1, w
 
         masks_soft_ncut_values_item = masks_soft_ncut_values.item()
 
-        if visualize and (i % visualize_interval == 0 or i == steps-1):
+        if visualize and (i % visualize_interval == 0 or i == steps - 1):
             print(masks_soft_ncut_values_item)
             plt.imshow(masks.detach().cpu().numpy())
             plt.title(f"Step: {i}")
@@ -76,8 +76,10 @@ def ncut_refine(feats, masks, tau=0.2, eps=1e-5, steps=10, learning_rate=1e-1, w
 
 
 class NCutHead(nn.Module):
-    def __init__(self, args, steps=10, learning_rate=1e-1, weight_decay=1e-6, visualize_interval=10, visualize=False, resize_imgs_size=(480, 856), resize_masks_size=(480, 854),
-                 arch="vit_small", patch_size=8, which_features="k", tau=0.2, eps=1e-5, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
+    def __init__(self, args, steps=10, learning_rate=1e-1, weight_decay=1e-6, visualize_interval=10, visualize=False,
+                 resize_imgs_size=(480, 856), resize_masks_size=(480, 854),
+                 arch="vit_small", patch_size=8, which_features="k", tau=0.2, eps=1e-5, mean=(0.485, 0.456, 0.406),
+                 std=(0.229, 0.224, 0.225)):
         super().__init__()
         self.args = args
 
@@ -89,9 +91,9 @@ class NCutHead(nn.Module):
         self.visualize = visualize
 
         self.mean = torch.tensor(mean, dtype=torch.float, device="cuda")[
-            None, :, None, None]
+                    None, :, None, None]
         self.std = torch.tensor(std, dtype=torch.float, device="cuda")[
-            None, :, None, None]
+                   None, :, None, None]
 
         self.resize_imgs_size = resize_imgs_size
         self.resize_masks_size = resize_masks_size
@@ -116,6 +118,7 @@ class NCutHead(nn.Module):
 
         def hook_fn_forward_qkv(module, input, output):
             self.feat_out["qkv"] = output
+
         self.model._modules["blocks"][-1]._modules["attn"]._modules["qkv"].register_forward_hook(
             hook_fn_forward_qkv)
 
@@ -151,17 +154,17 @@ class NCutHead(nn.Module):
         if self.which_features == "k":
             k = qkv[1]
             k = k.transpose(1, 2).reshape(nb_im, nb_tokens, -1)
-            #feats = k[:, 1:, :]
+            # feats = k[:, 1:, :]
             feats = k
         elif self.which_features == "q":
             q = qkv[0]
             q = q.transpose(1, 2).reshape(nb_im, nb_tokens, -1)
-            #feats = q[:, 1:, :]
+            # feats = q[:, 1:, :]
             feats = q
         elif self.which_features == "v":
             v = qkv[2]
             v = v.transpose(1, 2).reshape(nb_im, nb_tokens, -1)
-            #feats = v[:, 1:, :]
+            # feats = v[:, 1:, :]
             feats = v
 
         return feats
@@ -179,7 +182,8 @@ class NCutHead(nn.Module):
         feats = self.get_feats(imgs)
 
         refined_mask = ncut_refine(feats, masks, tau=self.tau, eps=self.eps, steps=self.steps,
-                                   learning_rate=self.learning_rate, weight_decay=self.weight_decay, visualize_interval=self.visualize_interval, visualize=self.visualize)
+                                   learning_rate=self.learning_rate, weight_decay=self.weight_decay,
+                                   visualize_interval=self.visualize_interval, visualize=self.visualize)
 
         refined_mask = F.interpolate(
             refined_mask[:, None, ...], self.resize_masks_size, mode='bilinear')
@@ -219,7 +223,7 @@ def get_image(seq_name, frame_name):
     # img = TF.resize(img, img_size, interpolation=transforms.InterpolationMode.BICUBIC)
     img = np.asarray(img).astype(np.float32) / 255.
 
-    assert img.shape == (480, 854, 3)
+    # assert img.shape == (480, 854, 3)
 
     return img
 
@@ -227,7 +231,7 @@ def get_image(seq_name, frame_name):
 def visualize_masks(masks):
     plt.figure(figsize=(18, 8))
     for i, mask in enumerate(masks):
-        plt.subplot(1, num_channels, i+1)
+        plt.subplot(1, num_channels, i + 1)
         plt.imshow(mask, vmin=0., vmax=1., cmap="gray")
         plt.axis("off")
     plt.tight_layout()
@@ -236,11 +240,11 @@ def visualize_masks(masks):
 
 def visualize_image_masks(image, masks):
     plt.figure(figsize=(18, 8))
-    plt.subplot(1, num_channels+1, 1)
+    plt.subplot(1, num_channels + 1, 1)
     plt.imshow(image)
     plt.axis("off")
     for i, mask in enumerate(masks):
-        plt.subplot(1, num_channels+1, i+2)
+        plt.subplot(1, num_channels + 1, i + 2)
         plt.imshow(mask, vmin=0., vmax=1., cmap="gray")
         plt.axis("off")
     plt.tight_layout()
@@ -287,7 +291,8 @@ def ncut_seq_and_save(seq_name, object_channel, umi_th, dry_run=False):
         # print(frame_name)
 
         image = get_image(seq_name, frame_name)
-
+        # resize the imgs
+        image = cv2.resize(image,(img_size[1], img_size[0]))
         mask, mask_path = get_pred(
             seq_name, frame_name, object_channel, return_path=True)
 
@@ -352,7 +357,7 @@ if __name__ == "__main__":
     parser.add_argument('--object-channel', default=None, type=int,
                         help='object channel, if not supplied, perform MAA on all object channels and select the one with best MAA')
     parser.add_argument('--dataset', type=str, help='dataset', default="davis",
-                        choices=["davis", "stv2", "fbms59"])
+                        choices=["davis", "stv2", "fbms59", "vdv"])
 
     args = parser.parse_args()
 
@@ -376,6 +381,9 @@ if __name__ == "__main__":
     elif dataset == "fbms59":
         export_dir_name = 'saved_eval_export_trainval_ema'
 
+    elif dataset == "vdv":
+        export_dir_name = 'saved_eval_export_trainval_ema'
+
     pred_masks_dir = f"{pretrain_name}/{export_dir_name}"
 
     data_dir = "data"
@@ -384,8 +392,10 @@ if __name__ == "__main__":
         data_root = f"{data_dir}/data_davis"
         images_dir = f"{data_root}/JPEGImages/480p"
 
-        val_seqs = ['blackswan', 'bmx-trees', 'breakdance', 'camel', 'car-roundabout', 'car-shadow', 'cows', 'dance-twirl', 'dog', 'drift-chicane',
-                    'drift-straight', 'goat', 'horsejump-high', 'kite-surf', 'libby', 'motocross-jump', 'paragliding-launch', 'parkour', 'scooter-black', 'soapbox']
+        val_seqs = ['blackswan', 'bmx-trees', 'breakdance', 'camel', 'car-roundabout', 'car-shadow', 'cows',
+                    'dance-twirl', 'dog', 'drift-chicane',
+                    'drift-straight', 'goat', 'horsejump-high', 'kite-surf', 'libby', 'motocross-jump',
+                    'paragliding-launch', 'parkour', 'scooter-black', 'soapbox']
 
     elif dataset == "stv2":
         data_root = f'{data_dir}/data_SegTrackv2_resized'
@@ -419,17 +429,26 @@ if __name__ == "__main__":
                     'people03', 'people1', 'people2', 'rabbits02', 'rabbits03', 'rabbits04', 'tennis']
         images_dir = f"{data_root}/JPEGImages"
 
+    elif dataset == "vdv":
+        # This is FBMS59_resized.
+        data_root = f"{data_dir}/data_vdv"
+        # Validation sequences
+        val_seqs = ["scene" + str(i) for i in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20]]
+        images_dir = f"{data_root}/JPEGImages"
 
     seqs = sorted(os.listdir(images_dir))
     seqs = [seq for seq in seqs if not seq.startswith('.')]
 
     seq_name_to_ind_map = {seq: ind for ind, seq in enumerate(seqs)}
     print(f"Found {len(seqs)} sequences: {seqs}")
-
-    img_size = (480, 854)
+    if dataset != "vdv":
+        img_size = (480, 854)
+    else:
+        img_size = (540, 960)
 
     ncut_head = NCutHead(args=None, steps=10, learning_rate=0.45,
-                         weight_decay=1e-6, visualize_interval=10, visualize=False)
+                         weight_decay=1e-6, visualize_interval=10, visualize=False, resize_imgs_size=img_size,
+                         resize_masks_size=img_size)
 
     # args is unused in CRFHead for now
     # crf_head_single is for crf on the image only, crf_head is for crf after ncut optimization

@@ -42,7 +42,7 @@ else:
     print(f'Evaluating sequences {args.sequences} for the {args.task} task...')
     # Create dataset and evaluate
     # dataset_eval = DAVISEvaluation(davis_root=args.davis_path, task=args.task, gt_set=args.set)
-    dataset_eval = DAVISEvaluation(davis_root=args.davis_path, task=args.task, gt_set=args.set, year=args.year, sequences=args.sequences, step=args.step)
+    dataset_eval = DAVISEvaluation(davis_root=args.davis_path, task=args.task, gt_set=args.set, year=args.year, sequences=args.sequences, step=args.step, resolution="")
     metrics_res = dataset_eval.evaluate(args.results_path)
     J, F = metrics_res['J'], metrics_res['F']
 

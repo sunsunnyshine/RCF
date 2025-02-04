@@ -10,13 +10,13 @@ weight_decay: 1.e-4
 
 workers: 16
 
-checkpoints_dir: saved/saved_rcf_stage2.2
+checkpoints_dir: saved/saved_rcf_vdv_stage2.2
 model_cls: RCFModel
 
 eval_pos_th: 0.35
 
 disable_wandb: true
-allow_overwriting_checkpoints_dir: false
+allow_overwriting_checkpoints_dir: true
 
 train_transform_kwargs:
   strong_aug: true
@@ -28,7 +28,7 @@ test_transform_kwargs:
 loss_log_interval: 100
 
 # Use DAVIS as training set
-data_path: ./data/data_davis
+data_path: ./data/data_vdv
 dataset_kwargs: {}
 
 train_dataset_kwargs:
@@ -36,7 +36,7 @@ train_dataset_kwargs:
   load_flow: true
   load_pl: true
   # May need to override this due to different object channel
-  pl_root: saved/saved_rcf_stage2.1/saved_eval_export_trainval_ema_torchcrf_ncut_torchcrf/0
+  pl_root: saved/saved_rcf_vdv_stage2.1/saved_eval_export_trainval_ema_torchcrf_ncut_torchcrf/0
   flow_suffix: "_NewCT"
   split: trainval.txt
   zero_ann: false
@@ -157,4 +157,4 @@ eval_export: true
 
 # Please set:
 object_channel: 0
-pretrained_model: saved/saved_rcf_stage2.1/last.ckpt
+pretrained_model: saved/saved_rcf_vdv_stage2.1/last.ckpt

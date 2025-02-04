@@ -83,10 +83,15 @@ class DAVIS(object):
 
     def _get_all_elements(self, sequence, obj_type):
         obj = np.array(Image.open(self.sequences[sequence][obj_type][0]))
+        if len(obj.shape) == 3:
+            obj = obj[..., 0]
         all_objs = np.zeros((len(self.sequences[sequence][obj_type]), *obj.shape))
         obj_id = []
         for i, obj in enumerate(self.sequences[sequence][obj_type]):
-            all_objs[i, ...] = np.array(Image.open(obj))
+            one_mask = np.array(Image.open(obj))
+            if len(one_mask.shape) == 3:
+                one_mask = one_mask[..., 0]
+            all_objs[i, ...] = one_mask
             obj_id.append(''.join(obj.split('/')[-1].split('.')[:-1]))
         return all_objs, obj_id
 

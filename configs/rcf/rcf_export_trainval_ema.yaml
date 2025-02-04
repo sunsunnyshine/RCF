@@ -8,9 +8,9 @@ disable_wandb: true
 # This is to allow existing saved dir
 allow_overwriting_checkpoints_dir: true
 
-data_path: ./data/data_davis
+data_path: ./data/data_vdv
 
-checkpoints_dir: saved/saved_rcf
+checkpoints_dir: saved/saved_rcf_vdv
 pretrained_model: saved/saved_rcf/last.ckpt
 object_channel: 1
 
