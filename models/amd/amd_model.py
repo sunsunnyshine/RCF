@@ -133,6 +133,8 @@ class AMDModel(nn.Module):
     def export_seg(self, tosave, paths, seq_ids, seq_names, name='eval', train_iter=0, subdir=''):
         # tosave: [B, 3, mask_H, mask_W]
         # 0 means current frame
+        # save the binary image
+
         if subdir:
             subdir += '/'
             if not os.path.exists(f'{self.save_dir_eval_export}/{subdir}'):
@@ -141,7 +143,7 @@ class AMDModel(nn.Module):
             img_frame_id = path.split('/')[-1][:-4]
             fn_name = f'{self.save_dir_eval_export}/{subdir}{name}_{seq_name}_{img_frame_id}_{train_iter:07}.png'
             try:
-                torchvision.utils.save_image(tosave[idx_in_batch], fn_name)
+                torchvision.utils.save_image((tosave[idx_in_batch]>0.35).float(), fn_name)
             except Exception as e:
                 logger.warn(f"Error in saving: {fn_name} {e}")
 

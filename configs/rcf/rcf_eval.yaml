@@ -8,16 +8,16 @@ allow_overwriting_checkpoints_dir: true
 
 data_path: ./data/data_vdv
 
-checkpoints_dir: saved/saved_rcf_vdv_stage1
-pretrained_model: saved/saved_rcf_vdv_stage1/epoch=26-step=5184.ckpt
+checkpoints_dir: saved/saved_rcf_vdv_stage2.2
+pretrained_model: saved/saved_rcf_vdv_stage2.2/epoch=16-step=4573.ckpt
 object_channel: 0
 
 # In validation, it's save_eval
 saved_eval_dir_name: saved_eval_test
 saved_eval_export_dir_name: saved_eval_export
 
-eval_pos_th: -1
+eval_pos_th: 0.35
 eval_save: true
 # export depends on save
 eval_export: true
-export_all_seg: true
+export_all_seg: False
