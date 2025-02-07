@@ -23,7 +23,7 @@ class Results(object):
                     mask_path = mask_path[0]
             else:
                 mask_path = os.path.join(self.root_dir, f'{sequence}/{frame_id}.png')
-            arr = np.array(Image.open(mask_path).resize(size=(854, 480), resample=Image.BILINEAR))
+            arr = np.array(Image.open(mask_path).resize(size=(1280, 720), resample=Image.BILINEAR))
             if arr.ndim == 3:
                 arr = arr[..., 0]
             # print(arr.shape)

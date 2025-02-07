@@ -47,9 +47,10 @@ class DAVIS(object):
         self._check_directories()
 
         if sequences == 'all':
-            with open(os.path.join(self.imagesets_path, f'{self.subset}.txt'), 'r') as f:
-                tmp = f.readlines()
-            sequences_names = set([x.strip().split("/")[3] for x in tmp])
+            # with open(os.path.join(self.imagesets_path, f'{self.subset}.txt'), 'r') as f:
+            #     tmp = f.readlines()
+            # sequences_names = set([x.strip().split("/")[3] for x in tmp])
+            sequences_names = ["scene10", "scene11", "scene12", "scene13", "scene14"]
         else:
             sequences_names = sequences if isinstance(sequences, list) else [sequences]
         sequences_names = list(sequences_names)
@@ -61,7 +62,7 @@ class DAVIS(object):
             if len(images) == 0 and not codalab:
                 raise FileNotFoundError(f'Images for sequence {seq} not found.')
             self.sequences[seq]['images'] = images
-            masks = np.sort(glob(os.path.join(self.mask_path, seq, '*.png'))).tolist()
+            masks = np.sort(glob(os.path.join(self.mask_path, seq, '*.jpg'))).tolist()
             masks.extend([-1] * (len(images) - len(masks)))
             self.sequences[seq]['masks'] = masks
 
